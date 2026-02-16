@@ -1,0 +1,15 @@
+# Build artifacts
+**/bin/
+**/obj/
+dist/
+AwakeBuddy.exe
+AwakeBuddy-win-*/
+
+# IDE/user files
+.vs/
+*.user
+*.suo
+
+# Local runtime files
+logs/
+.sisyphus/
