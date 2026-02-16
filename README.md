@@ -19,6 +19,12 @@ It combines three goals:
   - `Ctrl+Alt+S`: Open settings
 - Single-file publish workflow (`AwakeBuddy.exe`) with automatic artifact cleanup
 
+## Screenshot
+
+Settings window preview:
+
+![AwakeBuddy Settings](docs/images/settings-window.png)
+
 ## Requirements
 
 - Windows 10/11
@@ -59,6 +65,13 @@ Useful installer options:
 ```powershell
 dotnet build .\src\AwakeBuddy\AwakeBuddy.csproj -c Release
 dotnet run --project .\src\AwakeBuddy\AwakeBuddy.csproj -c Debug
+```
+
+To refresh README screenshot assets:
+
+```powershell
+dotnet build .\src\AwakeBuddy\AwakeBuddy.csproj -c Release
+.\scripts\capture-doc-screenshots.ps1
 ```
 
 ## Usage
