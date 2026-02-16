@@ -1,62 +1,52 @@
 # AwakeBuddy
 
-AwakeBuddy is a lightweight Windows tray utility that keeps the system awake while you are idle, based on local settings and runtime state.
+AwakeBuddy is a lightweight Windows tray utility for OLED-friendly idle protection and keep-awake control.
+
+It combines three goals:
+
+- keep the PC awake when requested (system-only or system+display)
+- apply a black OLED care overlay with adjustable opacity
+- support single-display, multi-display, or all-display overlay targeting
+
+## Highlights
+
+- Tray-first app (no main window required)
+- Dedicated settings window backed by `%APPDATA%\AwakeBuddy\settings.json`
+- OLED Care Mode with monitor selection and `idleThresholdSeconds = 0` always-on mode
+- Anti-sleep engine with configurable interval and scope
+- Global hotkeys:
+  - `Ctrl+Alt+O`: Toggle OLED Care Mode
+  - `Ctrl+Alt+S`: Open settings
+- Single-file publish workflow (`AwakeBuddy.exe`) with automatic artifact cleanup
 
 ## Requirements
 
 - Windows 10/11
 - .NET SDK 9.0+
-- Windows PowerShell 5.1+ (for helper scripts)
+- Windows PowerShell 5.1+
+- Git (only needed for install-from-URL flow)
 
-## Build
+## Quick Start
 
-From repository root:
+### Option A: Install from Git URL (interactive setup)
 
-```powershell
-dotnet build .\src\AwakeBuddy\AwakeBuddy.csproj -c Release
-```
+If you only have a repository URL, use the installer script with that URL.
 
-## Run (development)
-
-```powershell
-dotnet run --project .\src\AwakeBuddy\AwakeBuddy.csproj -c Debug
-```
-
-The app runs headless with a tray icon and writes runtime status to your AppData profile.
-
-Use tray menu `Open settings` to open the dedicated settings window. The window reads from `%APPDATA%\AwakeBuddy\settings.json`, and saving applies changes to runtime + JSON.
-
-When OLED/Anti-sleep toggles change, AwakeBuddy provides sound feedback and a short floating subtitle.
-
-## Publish (win-x64, self-contained, single-file)
-
-Use the script:
-
-```powershell
-.\scripts\publish.ps1
-```
-
-It publishes and leaves only the latest executable at repo root as `AwakeBuddy.exe`.
-
-Previous publish artifacts (`dist\`, `AwakeBuddy-win-x64\`, old zip files, and build bin output) are cleaned automatically.
-
-## Install from Git URL (interactive)
-
-If you only have a Git URL, run:
+From an existing local copy of this project:
 
 ```powershell
 .\scripts\install-from-git.ps1 -RepoUrl "https://github.com/Superl3/StayAwake.git"
 ```
 
-What it does:
+The installer will:
 
-- Clones the repo
-- Publishes a self-contained single-file exe
-- Installs it to `%LOCALAPPDATA%\AwakeBuddy\bin`
-- Guides initial settings in interactive mode
-- Prints quick usage instructions
+1. Clone the target repo
+2. Publish a self-contained single-file executable
+3. Install it to `%LOCALAPPDATA%\AwakeBuddy\bin`
+4. Ask interactive initial setup questions
+5. Print quick usage instructions
 
-Useful options:
+Useful installer options:
 
 ```powershell
 .\scripts\install-from-git.ps1 -RepoUrl "<git-url>" -SkipInteractiveSetup
@@ -64,30 +54,92 @@ Useful options:
 .\scripts\install-from-git.ps1 -RepoUrl "<git-url>" -NoLaunch
 ```
 
-You can override configuration or runtime identifier:
+### Option B: Build and run locally
+
+```powershell
+dotnet build .\src\AwakeBuddy\AwakeBuddy.csproj -c Release
+dotnet run --project .\src\AwakeBuddy\AwakeBuddy.csproj -c Debug
+```
+
+## Usage
+
+- Run `AwakeBuddy.exe`
+- Use tray icon menu to toggle:
+  - `OLED Care Mode`
+  - `Anti-sleep`
+  - `Open settings`
+  - `Exit`
+
+When OLED or Anti-sleep toggles change, AwakeBuddy plays a short sound and shows a floating subtitle.
+
+## Configuration
+
+Settings are stored at `%APPDATA%\AwakeBuddy\settings.json`.
+
+Example:
+
+```json
+{
+  "schemaVersion": 1,
+  "idleThresholdSeconds": 300,
+  "overlayOpacity": 0.85,
+  "overlayEnabled": true,
+  "overlayMonitorDeviceName": "",
+  "antiSleepEnabled": true,
+  "antiSleepIntervalSeconds": 55,
+  "sleepProtectionScope": 1
+}
+```
+
+Field reference:
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `schemaVersion` | int | Settings schema version |
+| `idleThresholdSeconds` | int | Idle seconds before overlay; `0` means always-on overlay |
+| `overlayOpacity` | double | Overlay opacity from `0.0` to `1.0` |
+| `overlayEnabled` | bool | OLED Care Mode enabled flag |
+| `overlayMonitorDeviceName` | string | Target display selection: `""` primary, `"*"` all, or `"\\.\\DISPLAY1;\\.\\DISPLAY2"` |
+| `antiSleepEnabled` | bool | Anti-sleep enabled flag |
+| `antiSleepIntervalSeconds` | int | Keep-awake heartbeat interval in seconds |
+| `sleepProtectionScope` | int | `0`: system sleep only, `1`: system + display sleep |
+
+Status output is written to `%APPDATA%\AwakeBuddy\status.json`.
+
+## Publish
+
+```powershell
+.\scripts\publish.ps1
+```
+
+Behavior:
+
+- publishes a self-contained single-file build
+- leaves only latest `AwakeBuddy.exe` in repository root
+- removes previous build artifacts (`dist`, old package dirs/zips, project `bin/obj`)
+
+Optional publish arguments:
 
 ```powershell
 .\scripts\publish.ps1 -Configuration Debug
 .\scripts\publish.ps1 -RuntimeIdentifier win-arm64
 ```
 
-## Verify (non-interactive checks)
-
-Use the script:
+## Verification
 
 ```powershell
 .\scripts\verify.ps1
 ```
 
-It performs:
+Checks performed:
 
-- `dotnet build` of the app project
-- `powercfg /requests` capture (when available, especially useful if `AwakeBuddy` is running)
-- status dump from `%APPDATA%\AwakeBuddy\status.json`
+- `dotnet build` for the app project
+- `powercfg /requests` snapshot (requires elevated shell)
+- `%APPDATA%\AwakeBuddy\status.json` dump
 
-## Settings and status locations
+## Troubleshooting
 
-- Settings: `%APPDATA%\AwakeBuddy\settings.json`
-- Status: `%APPDATA%\AwakeBuddy\status.json`
-
-These files are owned by the app and updated at runtime.
+- If `powercfg /requests` does not show expected details, run PowerShell as Administrator.
+- If a hotkey does not respond, verify no other app is already using the same combination.
+- If a target monitor entry becomes invalid after display reconfiguration, re-open settings and reselect target displays.
+- If install-from-URL fails with "Repository is empty", push project files to that repository first.
