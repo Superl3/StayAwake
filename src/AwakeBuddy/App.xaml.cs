@@ -68,6 +68,11 @@ public partial class App : System.Windows.Application
         _globalHotkeyService.ToggleOverlayRequested += OnToggleOverlayHotkeyRequested;
         _globalHotkeyService.OpenSettingsRequested += OpenSettingsWindow;
 
+        if (HasArgument(e.Args, "--open-settings"))
+        {
+            Dispatcher.BeginInvoke((Action)OpenSettingsWindow);
+        }
+
         base.OnStartup(e);
     }
 
@@ -264,5 +269,18 @@ public partial class App : System.Windows.Application
         }
 
         return Path.Combine(AppContext.BaseDirectory, "logs");
+    }
+
+    private static bool HasArgument(string[] args, string expected)
+    {
+        foreach (string arg in args)
+        {
+            if (string.Equals(arg, expected, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
