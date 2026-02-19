@@ -1,0 +1,51 @@
+name: Build and Update Main Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main-latest
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Build release assets
+        shell: pwsh
+        run: .\scripts\build-release-assets.ps1 -Version main-latest
+
+      - name: Publish rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: main-latest
+          name: main-latest
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          generate_release_notes: false
+          body: |
+            Rolling build from `main`.
+
+            Commit: `${{ github.sha }}`
+          files: |
+            dist/release/main-latest/AwakeBuddy-win-x64.exe
+            dist/release/main-latest/AwakeBuddy-win-x86.exe
+            dist/release/main-latest/AwakeBuddy-win-arm64.exe
+            dist/release/main-latest/SHA256SUMS.txt
