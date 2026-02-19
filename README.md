@@ -13,6 +13,7 @@ It combines three goals:
 - Tray-first app (no main window required)
 - Dedicated settings window backed by `%APPDATA%\AwakeBuddy\settings.json`
 - OLED Care Mode with monitor selection and `idleThresholdSeconds = 0` always-on mode
+- Optional physical-input-only idle detection (`ignoreInjectedInputForIdle`) to reduce false activity from injected/remote tools
 - Anti-sleep engine with configurable interval and scope
 - Global hotkeys:
   - `Ctrl+Alt+O`: Toggle OLED Care Mode
@@ -21,9 +22,14 @@ It combines three goals:
 
 ## Screenshot
 
-Settings window preview:
+The screenshot asset is generated from a live app window and may go stale after UI changes.
 
-![AwakeBuddy Settings](docs/images/settings-window.png)
+To regenerate it:
+
+```powershell
+dotnet build .\src\AwakeBuddy\AwakeBuddy.csproj -c Release
+.\scripts\capture-doc-screenshots.ps1
+```
 
 ## Requirements
 
@@ -74,6 +80,16 @@ dotnet build .\src\AwakeBuddy\AwakeBuddy.csproj -c Release
 .\scripts\capture-doc-screenshots.ps1
 ```
 
+### Option C: Shareable install command for other users
+
+If you want another user to install directly from your repository URL:
+
+```powershell
+.\scripts\install-from-git.ps1 -RepoUrl "<your-repo-url>"
+```
+
+The setup flow now includes an idle option to ignore injected input events (useful for tools like Mouse Without Borders).
+
 ## Usage
 
 - Run `AwakeBuddy.exe`
@@ -100,7 +116,8 @@ Example:
   "overlayMonitorDeviceName": "",
   "antiSleepEnabled": true,
   "antiSleepIntervalSeconds": 55,
-  "sleepProtectionScope": 1
+  "sleepProtectionScope": 1,
+  "ignoreInjectedInputForIdle": false
 }
 ```
 
@@ -116,6 +133,7 @@ Field reference:
 | `antiSleepEnabled` | bool | Anti-sleep enabled flag |
 | `antiSleepIntervalSeconds` | int | Keep-awake heartbeat interval in seconds |
 | `sleepProtectionScope` | int | `0`: system sleep only, `1`: system + display sleep |
+| `ignoreInjectedInputForIdle` | bool | When `true`, idle detection prefers physical keyboard/mouse events and ignores injected low-level input flags |
 
 Status output is written to `%APPDATA%\AwakeBuddy\status.json`.
 
