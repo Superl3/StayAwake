@@ -41,7 +41,18 @@ public sealed class GlobalHotkeyService : IDisposable
         int vkS = KeyInterop.VirtualKeyFromKey(Key.S);
 
         _toggleOverlayRegistered = RegisterHotKey(_source.Handle, HotkeyIdToggleOverlay, ModAlt | ModControl | ModNoRepeat, (uint)vkO);
+        if (!_toggleOverlayRegistered)
+        {
+            int errorCode = Marshal.GetLastWin32Error();
+            System.Diagnostics.Debug.WriteLine($"GlobalHotkeyService: failed to register Ctrl+Alt+O (error={errorCode}).");
+        }
+
         _openSettingsRegistered = RegisterHotKey(_source.Handle, HotkeyIdOpenSettings, ModAlt | ModControl | ModNoRepeat, (uint)vkS);
+        if (!_openSettingsRegistered)
+        {
+            int errorCode = Marshal.GetLastWin32Error();
+            System.Diagnostics.Debug.WriteLine($"GlobalHotkeyService: failed to register Ctrl+Alt+S (error={errorCode}).");
+        }
     }
 
     public void Dispose()

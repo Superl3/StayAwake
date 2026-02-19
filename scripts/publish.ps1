@@ -2,18 +2,41 @@
 param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
-    [string]$RuntimeIdentifier = 'win-x64'
+    [ValidateSet('auto', 'win-x86', 'win-x64', 'win-arm64')]
+    [string]$RuntimeIdentifier = 'auto'
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Resolve-HostRuntimeIdentifier {
+    try {
+        $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToUpperInvariant()
+    }
+    catch {
+        $architecture = ($env:PROCESSOR_ARCHITECTURE + '').ToUpperInvariant()
+    }
+
+    switch ($architecture) {
+        'X86' { return 'win-x86' }
+        'ARM64' { return 'win-arm64' }
+        default { return 'win-x64' }
+    }
+}
+
+$resolvedRuntimeIdentifier = if ([string]::Equals($RuntimeIdentifier, 'auto', [System.StringComparison]::OrdinalIgnoreCase)) {
+    Resolve-HostRuntimeIdentifier
+}
+else {
+    $RuntimeIdentifier
+}
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = Join-Path $repoRoot 'src\AwakeBuddy\AwakeBuddy.csproj'
 $outputPath = Join-Path $env:TEMP ("AwakeBuddy-publish-" + [Guid]::NewGuid().ToString("N"))
 $rootExecutablePath = Join-Path $repoRoot 'AwakeBuddy.exe'
-$rootPackagePath = Join-Path $repoRoot "AwakeBuddy-$RuntimeIdentifier"
-$legacyRootZipPath = Join-Path $repoRoot "AwakeBuddy-$RuntimeIdentifier.zip"
-$legacyDistZipPath = Join-Path $repoRoot "dist\AwakeBuddy-$RuntimeIdentifier.zip"
+$rootPackagePath = Join-Path $repoRoot "AwakeBuddy-$resolvedRuntimeIdentifier"
+$legacyRootZipPath = Join-Path $repoRoot "AwakeBuddy-$resolvedRuntimeIdentifier.zip"
+$legacyDistZipPath = Join-Path $repoRoot "dist\AwakeBuddy-$resolvedRuntimeIdentifier.zip"
 $distPath = Join-Path $repoRoot 'dist'
 $projectBinPath = Join-Path $repoRoot 'src\AwakeBuddy\bin'
 $projectObjPath = Join-Path $repoRoot 'src\AwakeBuddy\obj'
@@ -22,14 +45,14 @@ if (-not (Test-Path $projectPath)) {
     throw "Project file not found: $projectPath"
 }
 
-Write-Host "Publishing AwakeBuddy ($Configuration) to $outputPath"
+Write-Host "Publishing AwakeBuddy ($Configuration, $resolvedRuntimeIdentifier) to $outputPath"
 
 New-Item -ItemType Directory -Path $outputPath -Force | Out-Null
 
 try {
     dotnet publish $projectPath `
         -c $Configuration `
-        -r $RuntimeIdentifier `
+        -r $resolvedRuntimeIdentifier `
         --self-contained true `
         /p:PublishSingleFile=true `
         /p:EnableCompressionInSingleFile=true `

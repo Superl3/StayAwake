@@ -28,7 +28,20 @@ if ($null -ne $powerCfg) {
         Write-Host 'AwakeBuddy process is not running.'
     }
 
-    powercfg /requests
+    try {
+        $powerCfgOutput = cmd /c "powercfg /requests 2>&1"
+        $powerCfgText = ($powerCfgOutput | Out-String)
+
+        if ($LASTEXITCODE -ne 0 -or $powerCfgText -match 'administrator|관리자') {
+            Write-Warning 'powercfg /requests requires an elevated shell on this machine. Skipping this optional check.'
+        }
+        else {
+            Write-Host $powerCfgText
+        }
+    }
+    catch {
+        Write-Warning 'powercfg /requests failed in the current shell. Skipping this optional check.'
+    }
 }
 else {
     Write-Warning 'powercfg is not available on this machine.'

@@ -6,8 +6,8 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
-    [ValidateSet('win-x64', 'win-arm64')]
-    [string]$RuntimeIdentifier = 'win-x64',
+    [ValidateSet('auto', 'win-x86', 'win-x64', 'win-arm64')]
+    [string]$RuntimeIdentifier = 'auto',
 
     [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA 'AwakeBuddy\bin'),
 
@@ -155,6 +155,32 @@ function Read-MonitorSelectionSpec {
     }
 }
 
+function Resolve-HostRuntimeIdentifier {
+    try {
+        $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToUpperInvariant()
+    }
+    catch {
+        $architecture = ($env:PROCESSOR_ARCHITECTURE + '').ToUpperInvariant()
+    }
+
+    switch ($architecture) {
+        'X86' { return 'win-x86' }
+        'ARM64' { return 'win-arm64' }
+        default { return 'win-x64' }
+    }
+}
+
+function Resolve-RuntimeIdentifier {
+    param([string]$RequestedRuntimeIdentifier)
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedRuntimeIdentifier) -and
+        -not [string]::Equals($RequestedRuntimeIdentifier, 'auto', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $RequestedRuntimeIdentifier
+    }
+
+    return Resolve-HostRuntimeIdentifier
+}
+
 function Get-ProjectPath {
     param([string]$RepoDirectory)
 
@@ -219,6 +245,14 @@ function Write-InteractiveSettings {
 Require-Command -Name 'git'
 Require-Command -Name 'dotnet'
 
+$resolvedRuntimeIdentifier = Resolve-RuntimeIdentifier -RequestedRuntimeIdentifier $RuntimeIdentifier
+$hostRuntimeIdentifier = Resolve-HostRuntimeIdentifier
+
+if (-not [string]::Equals($RuntimeIdentifier, 'auto', [System.StringComparison]::OrdinalIgnoreCase) -and
+    -not [string]::Equals($resolvedRuntimeIdentifier, $hostRuntimeIdentifier, [System.StringComparison]::OrdinalIgnoreCase)) {
+    Write-Warning "Host architecture suggests '$hostRuntimeIdentifier', but '$resolvedRuntimeIdentifier' was requested explicitly."
+}
+
 $tempRoot = Join-Path $env:TEMP ("AwakeBuddy-install-" + [Guid]::NewGuid().ToString('N'))
 $cloneDirectory = Join-Path $tempRoot 'repo'
 $publishDirectory = Join-Path $tempRoot 'publish'
@@ -232,12 +266,12 @@ try {
 
     $projectPath = Get-ProjectPath -RepoDirectory $cloneDirectory
 
-    Write-Step "Publishing self-contained executable ($RuntimeIdentifier, $Configuration)"
+    Write-Step "Publishing self-contained executable ($resolvedRuntimeIdentifier, $Configuration)"
     New-Item -Path $publishDirectory -ItemType Directory -Force | Out-Null
 
     dotnet publish "$projectPath" `
         -c $Configuration `
-        -r $RuntimeIdentifier `
+        -r $resolvedRuntimeIdentifier `
         --self-contained true `
         /p:PublishSingleFile=true `
         /p:EnableCompressionInSingleFile=true `
@@ -247,7 +281,23 @@ try {
         /p:DebugSymbols=false `
         -o "$publishDirectory"
 
-    $publishedExe = Get-ChildItem -Path $publishDirectory -Filter *.exe -File | Select-Object -First 1
+    $projectName = [System.IO.Path]::GetFileNameWithoutExtension($projectPath)
+    $expectedPublishedExe = Join-Path $publishDirectory ($projectName + '.exe')
+
+    if (Test-Path $expectedPublishedExe) {
+        $publishedExe = Get-Item -Path $expectedPublishedExe
+    }
+    else {
+        $publishedExecutables = Get-ChildItem -Path $publishDirectory -Filter *.exe -File
+        if ($publishedExecutables.Count -eq 1) {
+            $publishedExe = $publishedExecutables[0]
+        }
+        else {
+            $publishedNames = ($publishedExecutables | Select-Object -ExpandProperty Name) -join ', '
+            throw "Unable to determine published executable in: $publishDirectory. Candidates: $publishedNames"
+        }
+    }
+
     if ($null -eq $publishedExe) {
         throw "No executable found in publish output: $publishDirectory"
     }
@@ -259,6 +309,7 @@ try {
     New-Item -Path $InstallDirectory -ItemType Directory -Force | Out-Null
     $installedExePath = Join-Path $InstallDirectory $publishedExe.Name
     Copy-Item -Path $publishedExe.FullName -Destination $installedExePath -Force
+    Unblock-File -Path $installedExePath -ErrorAction SilentlyContinue
 
     if (-not $SkipInteractiveSetup) {
         Write-InteractiveSettings -SettingsPath $settingsPath
