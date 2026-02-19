@@ -88,7 +88,7 @@ public sealed class IdleMonitor : IDisposable
 
             if (_ignoreInjectedInput)
             {
-                _physicalInputTracker.Start();
+                StartPhysicalInputTrackerWithCurrentIdleSeed();
             }
 
             _timer.Change(0, _pollIntervalMilliseconds);
@@ -117,9 +117,18 @@ public sealed class IdleMonitor : IDisposable
         {
             ThrowIfDisposed();
 
-            if (_ignoreInjectedInput && _physicalInputTracker.TryGetIdleElapsedMilliseconds(out idleElapsedMilliseconds))
+            if (_ignoreInjectedInput)
             {
-                return true;
+                if (_physicalInputTracker.TryGetIdleElapsedMilliseconds(out idleElapsedMilliseconds))
+                {
+                    return true;
+                }
+
+                if (_physicalInputTracker.IsRunning && !_physicalInputTracker.HasInitializationFailed)
+                {
+                    idleElapsedMilliseconds = 0;
+                    return false;
+                }
             }
         }
 
@@ -146,13 +155,24 @@ public sealed class IdleMonitor : IDisposable
 
             if (_ignoreInjectedInput)
             {
-                _physicalInputTracker.Start();
+                StartPhysicalInputTrackerWithCurrentIdleSeed();
             }
             else
             {
                 _physicalInputTracker.Stop();
             }
         }
+    }
+
+    private void StartPhysicalInputTrackerWithCurrentIdleSeed()
+    {
+        long initialIdleElapsedMilliseconds = 0;
+        if (NativeMethods.TryGetIdleElapsedMilliseconds(out long nativeIdleElapsedMilliseconds))
+        {
+            initialIdleElapsedMilliseconds = Math.Max(0, nativeIdleElapsedMilliseconds);
+        }
+
+        _physicalInputTracker.Start(initialIdleElapsedMilliseconds);
     }
 
     public void UpdateIdleThresholdSeconds(int idleThresholdSeconds)

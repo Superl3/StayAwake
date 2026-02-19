@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -12,6 +13,7 @@ internal sealed class PhysicalInputTracker : IDisposable
     private const uint KeyboardInjectedFlag = 0x00000010;
     private const uint MouseInjectedFlag = 0x00000001;
     private const uint WindowMessageQuit = 0x0012;
+    private const uint MessagePeekNoRemove = 0x0000;
 
     private readonly object _gate = new();
     private readonly HookProc _keyboardHookProc;
@@ -22,6 +24,7 @@ internal sealed class PhysicalInputTracker : IDisposable
     private bool _isRunning;
     private bool _isDisposed;
     private bool _hooksInstalled;
+    private bool _hookInitializationFailed;
     private long _lastPhysicalInputTick;
 
     public PhysicalInputTracker()
@@ -31,7 +34,7 @@ internal sealed class PhysicalInputTracker : IDisposable
         _lastPhysicalInputTick = Environment.TickCount64;
     }
 
-    public void Start()
+    public void Start(long initialIdleElapsedMilliseconds = 0)
     {
         lock (_gate)
         {
@@ -42,8 +45,10 @@ internal sealed class PhysicalInputTracker : IDisposable
                 return;
             }
 
-            _lastPhysicalInputTick = Environment.TickCount64;
+            long clampedInitialIdleElapsed = Math.Max(0, initialIdleElapsedMilliseconds);
+            _lastPhysicalInputTick = Environment.TickCount64 - clampedInitialIdleElapsed;
             _hooksInstalled = false;
+            _hookInitializationFailed = false;
             _isRunning = true;
             _hookThread = new Thread(HookThreadMain)
             {
@@ -51,6 +56,28 @@ internal sealed class PhysicalInputTracker : IDisposable
                 Name = "AwakeBuddy.PhysicalInputTracker"
             };
             _hookThread.Start();
+        }
+    }
+
+    public bool IsRunning
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _isRunning;
+            }
+        }
+    }
+
+    public bool HasInitializationFailed
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _hookInitializationFailed;
+            }
         }
     }
 
@@ -73,7 +100,12 @@ internal sealed class PhysicalInputTracker : IDisposable
 
         if (hookThreadId != 0)
         {
-            _ = PostThreadMessage((uint)hookThreadId, WindowMessageQuit, UIntPtr.Zero, IntPtr.Zero);
+            bool postSucceeded = PostThreadMessage((uint)hookThreadId, WindowMessageQuit, UIntPtr.Zero, IntPtr.Zero);
+            if (!postSucceeded)
+            {
+                int errorCode = Marshal.GetLastWin32Error();
+                Debug.WriteLine($"PhysicalInputTracker: failed to post WM_QUIT to hook thread (error={errorCode}).");
+            }
         }
 
         if (hookThread is not null && hookThread.IsAlive)
@@ -128,6 +160,9 @@ internal sealed class PhysicalInputTracker : IDisposable
 
     private void HookThreadMain()
     {
+        NativeMessage ignoredMessage;
+        _ = PeekMessage(out ignoredMessage, IntPtr.Zero, 0, 0, MessagePeekNoRemove);
+
         lock (_gate)
         {
             if (!_isRunning || _isDisposed)
@@ -142,7 +177,9 @@ internal sealed class PhysicalInputTracker : IDisposable
 
         IntPtr moduleHandle = GetModuleHandle(lpModuleName: null);
         IntPtr keyboardHook = SetWindowsHookEx(HookKeyboardLowLevel, _keyboardHookProc, moduleHandle, 0);
+        int keyboardHookErrorCode = keyboardHook == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0;
         IntPtr mouseHook = SetWindowsHookEx(HookMouseLowLevel, _mouseHookProc, moduleHandle, 0);
+        int mouseHookErrorCode = mouseHook == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0;
 
         if (keyboardHook == IntPtr.Zero || mouseHook == IntPtr.Zero)
         {
@@ -159,10 +196,13 @@ internal sealed class PhysicalInputTracker : IDisposable
             lock (_gate)
             {
                 _hooksInstalled = false;
+                _hookInitializationFailed = true;
                 _isRunning = false;
                 _hookThread = null;
                 _hookThreadId = 0;
             }
+
+            Debug.WriteLine($"PhysicalInputTracker: failed to install hooks (keyboardError={keyboardHookErrorCode}, mouseError={mouseHookErrorCode}).");
 
             return;
         }
@@ -287,6 +327,10 @@ internal sealed class PhysicalInputTracker : IDisposable
 
     [DllImport("user32.dll")]
     private static extern int GetMessage(out NativeMessage lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PeekMessage(out NativeMessage lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
 
     [DllImport("user32.dll")]
     private static extern bool TranslateMessage([In] ref NativeMessage lpMsg);
