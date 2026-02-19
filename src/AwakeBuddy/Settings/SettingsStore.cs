@@ -133,7 +133,8 @@ public sealed class SettingsStore
             OverlayMonitorDeviceName = overlayMonitorDeviceName,
             AntiSleepEnabled = document.AntiSleepEnabled.GetValueOrDefault(defaults.AntiSleepEnabled),
             AntiSleepIntervalSeconds = antiSleepInterval,
-            SleepProtectionScope = protectionScope
+            SleepProtectionScope = protectionScope,
+            IgnoreInjectedInputForIdle = document.IgnoreInjectedInputForIdle.GetValueOrDefault(defaults.IgnoreInjectedInputForIdle)
         };
     }
 
@@ -181,5 +182,6 @@ public sealed class SettingsStore
         public bool? AntiSleepEnabled { get; set; }
         public int? AntiSleepIntervalSeconds { get; set; }
         public SleepProtectionScope? SleepProtectionScope { get; set; }
+        public bool? IgnoreInjectedInputForIdle { get; set; }
     }
 }

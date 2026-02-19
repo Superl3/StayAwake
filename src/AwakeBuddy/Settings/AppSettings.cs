@@ -18,6 +18,7 @@ public sealed class AppSettings
     public bool AntiSleepEnabled { get; set; } = false;
     public int AntiSleepIntervalSeconds { get; set; } = 55;
     public SleepProtectionScope SleepProtectionScope { get; set; } = SleepProtectionScope.SystemSleepOnly;
+    public bool IgnoreInjectedInputForIdle { get; set; } = false;
 
     public static AppSettings CreateDefault() => new();
 
@@ -32,7 +33,8 @@ public sealed class AppSettings
             OverlayMonitorDeviceName = OverlayMonitorDeviceName,
             AntiSleepEnabled = AntiSleepEnabled,
             AntiSleepIntervalSeconds = AntiSleepIntervalSeconds,
-            SleepProtectionScope = SleepProtectionScope
+            SleepProtectionScope = SleepProtectionScope,
+            IgnoreInjectedInputForIdle = IgnoreInjectedInputForIdle
         };
     }
 }

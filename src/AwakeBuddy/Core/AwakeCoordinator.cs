@@ -712,6 +712,7 @@ public sealed class AwakeCoordinator : IDisposable
         _overlay.SetOpacity(_settings.OverlayOpacity);
         _overlay.SetTargetMonitor(_settings.OverlayMonitorDeviceName);
         _overlay.SetHint(OverlayHintText, _settings.OverlayEnabled && _settings.IdleThresholdSeconds == 0);
+        _idleMonitor.UpdateIgnoreInjectedInput(_settings.IgnoreInjectedInputForIdle);
         _idleMonitor.IdleStarted += OnIdleStarted;
         _idleMonitor.IdleStopped += OnIdleStopped;
     }
@@ -808,6 +809,7 @@ public sealed class AwakeCoordinator : IDisposable
         bool setOpacity = false;
         double opacity = 0;
         bool updateIdleThreshold = false;
+        bool updateIgnoreInjectedInput = false;
         int idleThresholdSeconds = 0;
         string overlayMonitorDeviceName = string.Empty;
         bool hintEnabled = false;
@@ -826,6 +828,7 @@ public sealed class AwakeCoordinator : IDisposable
 
             setOpacity = _settings.OverlayOpacity != settings.OverlayOpacity;
             updateIdleThreshold = _settings.IdleThresholdSeconds != settings.IdleThresholdSeconds;
+            updateIgnoreInjectedInput = _settings.IgnoreInjectedInputForIdle != settings.IgnoreInjectedInputForIdle;
             updateAntiSleepConfiguration =
                 _settings.AntiSleepIntervalSeconds != settings.AntiSleepIntervalSeconds ||
                 _settings.SleepProtectionScope != settings.SleepProtectionScope;
@@ -838,6 +841,7 @@ public sealed class AwakeCoordinator : IDisposable
             _settings.AntiSleepEnabled = settings.AntiSleepEnabled;
             _settings.AntiSleepIntervalSeconds = settings.AntiSleepIntervalSeconds;
             _settings.SleepProtectionScope = settings.SleepProtectionScope;
+            _settings.IgnoreInjectedInputForIdle = settings.IgnoreInjectedInputForIdle;
 
             opacity = _settings.OverlayOpacity;
             idleThresholdSeconds = _settings.IdleThresholdSeconds;
@@ -879,6 +883,11 @@ public sealed class AwakeCoordinator : IDisposable
         if (updateIdleThreshold && idleThresholdSeconds > 0)
         {
             _idleMonitor.UpdateIdleThresholdSeconds(idleThresholdSeconds);
+        }
+
+        if (updateIgnoreInjectedInput)
+        {
+            _idleMonitor.UpdateIgnoreInjectedInput(_settings.IgnoreInjectedInputForIdle);
         }
 
         if (updateAntiSleepConfiguration)

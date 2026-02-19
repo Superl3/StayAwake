@@ -13,6 +13,7 @@ public sealed class IdleMonitor : IDisposable
     private readonly int _pollIntervalMilliseconds;
     private readonly int _debounceToleranceMilliseconds;
     private readonly SynchronizationContext? _eventContext;
+    private readonly PhysicalInputTracker _physicalInputTracker;
 
     private int _idleThresholdMilliseconds;
     private int _idleStartBoundaryMilliseconds;
@@ -21,6 +22,7 @@ public sealed class IdleMonitor : IDisposable
     private bool _isRunning;
     private bool _isIdle;
     private bool _isDisposed;
+    private bool _ignoreInjectedInput;
 
     /// <summary>
     /// Events are raised on <paramref name="eventContext"/> when provided; otherwise they are raised on the timer's ThreadPool callback thread.
@@ -52,6 +54,7 @@ public sealed class IdleMonitor : IDisposable
         (_idleStartBoundaryMilliseconds, _idleStopBoundaryMilliseconds) =
             CalculateBoundaries(_idleThresholdMilliseconds, _debounceToleranceMilliseconds);
         _eventContext = eventContext;
+        _physicalInputTracker = new PhysicalInputTracker();
     }
 
     public event EventHandler<IdleStateChangedEventArgs>? IdleStarted;
@@ -82,6 +85,12 @@ public sealed class IdleMonitor : IDisposable
 
             _timer ??= new Timer(OnPollTimerTick, null, Timeout.Infinite, Timeout.Infinite);
             _isRunning = true;
+
+            if (_ignoreInjectedInput)
+            {
+                _physicalInputTracker.Start();
+            }
+
             _timer.Change(0, _pollIntervalMilliseconds);
         }
     }
@@ -98,12 +107,52 @@ public sealed class IdleMonitor : IDisposable
             _isRunning = false;
             _isIdle = false;
             _timer?.Change(Timeout.Infinite, Timeout.Infinite);
+            _physicalInputTracker.Stop();
         }
     }
 
     public bool TryGetIdleElapsedMilliseconds(out long idleElapsedMilliseconds)
     {
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+
+            if (_ignoreInjectedInput && _physicalInputTracker.TryGetIdleElapsedMilliseconds(out idleElapsedMilliseconds))
+            {
+                return true;
+            }
+        }
+
         return NativeMethods.TryGetIdleElapsedMilliseconds(out idleElapsedMilliseconds);
+    }
+
+    public void UpdateIgnoreInjectedInput(bool ignoreInjectedInput)
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+
+            if (_ignoreInjectedInput == ignoreInjectedInput)
+            {
+                return;
+            }
+
+            _ignoreInjectedInput = ignoreInjectedInput;
+
+            if (!_isRunning)
+            {
+                return;
+            }
+
+            if (_ignoreInjectedInput)
+            {
+                _physicalInputTracker.Start();
+            }
+            else
+            {
+                _physicalInputTracker.Stop();
+            }
+        }
     }
 
     public void UpdateIdleThresholdSeconds(int idleThresholdSeconds)
@@ -145,6 +194,7 @@ public sealed class IdleMonitor : IDisposable
             _isDisposed = true;
             _isRunning = false;
             _isIdle = false;
+            _physicalInputTracker.Dispose();
             _timer?.Dispose();
             _timer = null;
         }
@@ -162,7 +212,7 @@ public sealed class IdleMonitor : IDisposable
                 return;
             }
 
-            if (!NativeMethods.TryGetIdleElapsedMilliseconds(out idleElapsedMilliseconds))
+            if (!TryGetIdleElapsedMilliseconds(out idleElapsedMilliseconds))
             {
                 return;
             }
