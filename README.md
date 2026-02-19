@@ -40,9 +40,25 @@ dotnet build .\src\AwakeBuddy\AwakeBuddy.csproj -c Release
 
 ## Quick Start
 
-### Option A: Install from Git URL (interactive setup)
+### Option A: Install from GitHub Releases (recommended)
 
-If you only have a repository URL, use the installer script with that URL.
+Download the executable that matches your Windows architecture from Releases:
+
+<https://github.com/Superl3/StayAwake/releases/latest>
+
+- `AwakeBuddy-win-x64.exe`
+- `AwakeBuddy-win-x86.exe`
+- `AwakeBuddy-win-arm64.exe`
+
+Quick check for your architecture:
+
+```powershell
+[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+```
+
+If you launch a mismatched binary, Windows can show `%1 is not a valid Win32 application`.
+
+### Option B: Install from Git URL (interactive source build)
 
 From an existing local copy of this project:
 
@@ -53,7 +69,7 @@ From an existing local copy of this project:
 The installer will:
 
 1. Clone the target repo
-2. Publish a self-contained single-file executable
+2. Publish a self-contained single-file executable for your host architecture by default
 3. Install it to `%LOCALAPPDATA%\AwakeBuddy\bin`
 4. Ask interactive initial setup questions
 5. Print quick usage instructions
@@ -62,11 +78,13 @@ Useful installer options:
 
 ```powershell
 .\scripts\install-from-git.ps1 -RepoUrl "<git-url>" -SkipInteractiveSetup
+.\scripts\install-from-git.ps1 -RepoUrl "<git-url>" -RuntimeIdentifier win-x64
+.\scripts\install-from-git.ps1 -RepoUrl "<git-url>" -RuntimeIdentifier win-x86
 .\scripts\install-from-git.ps1 -RepoUrl "<git-url>" -RuntimeIdentifier win-arm64
 .\scripts\install-from-git.ps1 -RepoUrl "<git-url>" -NoLaunch
 ```
 
-### Option B: Build and run locally
+### Option C: Build and run locally
 
 ```powershell
 dotnet build .\src\AwakeBuddy\AwakeBuddy.csproj -c Release
@@ -80,7 +98,7 @@ dotnet build .\src\AwakeBuddy\AwakeBuddy.csproj -c Release
 .\scripts\capture-doc-screenshots.ps1
 ```
 
-### Option C: Shareable install command for other users
+### Option D: Shareable install command for other users
 
 If you want another user to install directly from your repository URL:
 
@@ -153,8 +171,18 @@ Optional publish arguments:
 
 ```powershell
 .\scripts\publish.ps1 -Configuration Debug
+.\scripts\publish.ps1 -RuntimeIdentifier auto
+.\scripts\publish.ps1 -RuntimeIdentifier win-x86
 .\scripts\publish.ps1 -RuntimeIdentifier win-arm64
 ```
+
+To build multi-architecture Release assets for GitHub Releases:
+
+```powershell
+.\scripts\build-release-assets.ps1 -Version v0.2.1
+```
+
+Artifacts are written to `dist\release\<version>` with SHA256 checksums.
 
 ## Verification
 
@@ -170,7 +198,8 @@ Checks performed:
 
 ## Troubleshooting
 
-- If `powercfg /requests` does not show expected details, run PowerShell as Administrator.
+- `powercfg /requests` in `scripts/verify.ps1` is optional; run an elevated shell only when you need that diagnostic output.
 - If a hotkey does not respond, verify no other app is already using the same combination.
+- Hotkeys and input hooks can be limited by UAC boundaries when interacting with elevated apps; this does not mean AwakeBuddy itself requires admin for normal use.
 - If a target monitor entry becomes invalid after display reconfiguration, re-open settings and reselect target displays.
 - If install-from-URL fails with "Repository is empty", push project files to that repository first.
