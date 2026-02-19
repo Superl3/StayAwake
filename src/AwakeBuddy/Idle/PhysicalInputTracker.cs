@@ -16,11 +16,16 @@ internal sealed class PhysicalInputTracker : IDisposable
     private const uint MessagePeekNoRemove = 0x0000;
     private const uint WindowMessageKeyDown = 0x0100;
     private const uint WindowMessageSystemKeyDown = 0x0104;
+    private const uint WindowMessageMouseMove = 0x0200;
     private const uint WindowMessageLeftButtonDown = 0x0201;
+    private const uint WindowMessageLeftButtonUp = 0x0202;
     private const uint WindowMessageRightButtonDown = 0x0204;
+    private const uint WindowMessageRightButtonUp = 0x0205;
     private const uint WindowMessageMiddleButtonDown = 0x0207;
+    private const uint WindowMessageMiddleButtonUp = 0x0208;
     private const uint WindowMessageMouseWheel = 0x020A;
     private const uint WindowMessageXButtonDown = 0x020B;
+    private const uint WindowMessageXButtonUp = 0x020C;
     private const uint WindowMessageMouseHorizontalWheel = 0x020E;
 
     private readonly object _gate = new();
@@ -311,10 +316,15 @@ internal sealed class PhysicalInputTracker : IDisposable
     private static bool IsInjectedMouseWakeMessage(IntPtr wParam)
     {
         uint message = unchecked((uint)wParam.ToInt64());
-        return message == WindowMessageLeftButtonDown ||
+        return message == WindowMessageMouseMove ||
+               message == WindowMessageLeftButtonDown ||
+               message == WindowMessageLeftButtonUp ||
                message == WindowMessageRightButtonDown ||
+               message == WindowMessageRightButtonUp ||
                message == WindowMessageMiddleButtonDown ||
+               message == WindowMessageMiddleButtonUp ||
                message == WindowMessageXButtonDown ||
+               message == WindowMessageXButtonUp ||
                message == WindowMessageMouseWheel ||
                message == WindowMessageMouseHorizontalWheel;
     }

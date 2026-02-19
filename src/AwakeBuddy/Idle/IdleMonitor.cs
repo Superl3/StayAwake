@@ -119,8 +119,8 @@ public sealed class IdleMonitor : IDisposable
 
             if (_ignoreInjectedInput)
             {
-                bool allowInjectedInteractionWake = _isIdle;
-                if (_physicalInputTracker.TryGetIdleElapsedMilliseconds(allowInjectedInteractionWake, out idleElapsedMilliseconds))
+                const bool allowInjectedInteractionActivity = true;
+                if (_physicalInputTracker.TryGetIdleElapsedMilliseconds(allowInjectedInteractionActivity, out idleElapsedMilliseconds))
                 {
                     return true;
                 }
