@@ -45,7 +45,7 @@ try {
 
         $publishedExecutable = Join-Path $publishDirectory 'AwakeBuddy.exe'
         if (-not (Test-Path $publishedExecutable)) {
-            throw "Published executable not found for $runtimeIdentifier: $publishedExecutable"
+            throw "Published executable not found for ${runtimeIdentifier}: $publishedExecutable"
         }
 
         $assetPath = Join-Path $assetsDirectory ("AwakeBuddy-{0}.exe" -f $runtimeIdentifier)
