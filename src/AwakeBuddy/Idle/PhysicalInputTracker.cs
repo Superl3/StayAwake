@@ -14,6 +14,14 @@ internal sealed class PhysicalInputTracker : IDisposable
     private const uint MouseInjectedFlag = 0x00000001;
     private const uint WindowMessageQuit = 0x0012;
     private const uint MessagePeekNoRemove = 0x0000;
+    private const uint WindowMessageKeyDown = 0x0100;
+    private const uint WindowMessageSystemKeyDown = 0x0104;
+    private const uint WindowMessageLeftButtonDown = 0x0201;
+    private const uint WindowMessageRightButtonDown = 0x0204;
+    private const uint WindowMessageMiddleButtonDown = 0x0207;
+    private const uint WindowMessageMouseWheel = 0x020A;
+    private const uint WindowMessageXButtonDown = 0x020B;
+    private const uint WindowMessageMouseHorizontalWheel = 0x020E;
 
     private readonly object _gate = new();
     private readonly HookProc _keyboardHookProc;
@@ -26,6 +34,7 @@ internal sealed class PhysicalInputTracker : IDisposable
     private bool _hooksInstalled;
     private bool _hookInitializationFailed;
     private long _lastPhysicalInputTick;
+    private long _lastInjectedInteractionTick;
 
     public PhysicalInputTracker()
     {
@@ -47,6 +56,7 @@ internal sealed class PhysicalInputTracker : IDisposable
 
             long clampedInitialIdleElapsed = Math.Max(0, initialIdleElapsedMilliseconds);
             _lastPhysicalInputTick = Environment.TickCount64 - clampedInitialIdleElapsed;
+            _lastInjectedInteractionTick = _lastPhysicalInputTick;
             _hooksInstalled = false;
             _hookInitializationFailed = false;
             _isRunning = true;
@@ -121,7 +131,7 @@ internal sealed class PhysicalInputTracker : IDisposable
         }
     }
 
-    public bool TryGetIdleElapsedMilliseconds(out long idleElapsedMilliseconds)
+    public bool TryGetIdleElapsedMilliseconds(bool allowInjectedInteractionWake, out long idleElapsedMilliseconds)
     {
         lock (_gate)
         {
@@ -133,8 +143,24 @@ internal sealed class PhysicalInputTracker : IDisposable
         }
 
         long lastPhysicalInputTick = Interlocked.Read(ref _lastPhysicalInputTick);
-        idleElapsedMilliseconds = Math.Max(0, Environment.TickCount64 - lastPhysicalInputTick);
+        long baselineInputTick = lastPhysicalInputTick;
+
+        if (allowInjectedInteractionWake)
+        {
+            long lastInjectedInteractionTick = Interlocked.Read(ref _lastInjectedInteractionTick);
+            if (lastInjectedInteractionTick > baselineInputTick)
+            {
+                baselineInputTick = lastInjectedInteractionTick;
+            }
+        }
+
+        idleElapsedMilliseconds = Math.Max(0, Environment.TickCount64 - baselineInputTick);
         return true;
+    }
+
+    public bool TryGetIdleElapsedMilliseconds(out long idleElapsedMilliseconds)
+    {
+        return TryGetIdleElapsedMilliseconds(allowInjectedInteractionWake: false, out idleElapsedMilliseconds);
     }
 
     public void Dispose()
@@ -240,10 +266,15 @@ internal sealed class PhysicalInputTracker : IDisposable
         {
             KbdLlHookStruct data = Marshal.PtrToStructure<KbdLlHookStruct>(lParam);
             bool isInjected = (data.flags & KeyboardInjectedFlag) != 0;
+            long currentTick = Environment.TickCount64;
 
             if (!isInjected)
             {
-                Interlocked.Exchange(ref _lastPhysicalInputTick, Environment.TickCount64);
+                Interlocked.Exchange(ref _lastPhysicalInputTick, currentTick);
+            }
+            else if (IsInjectedKeyboardWakeMessage(wParam))
+            {
+                Interlocked.Exchange(ref _lastInjectedInteractionTick, currentTick);
             }
         }
 
@@ -256,14 +287,36 @@ internal sealed class PhysicalInputTracker : IDisposable
         {
             MsLlHookStruct data = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
             bool isInjected = (data.flags & MouseInjectedFlag) != 0;
+            long currentTick = Environment.TickCount64;
 
             if (!isInjected)
             {
-                Interlocked.Exchange(ref _lastPhysicalInputTick, Environment.TickCount64);
+                Interlocked.Exchange(ref _lastPhysicalInputTick, currentTick);
+            }
+            else if (IsInjectedMouseWakeMessage(wParam))
+            {
+                Interlocked.Exchange(ref _lastInjectedInteractionTick, currentTick);
             }
         }
 
         return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
+    }
+
+    private static bool IsInjectedKeyboardWakeMessage(IntPtr wParam)
+    {
+        uint message = unchecked((uint)wParam.ToInt64());
+        return message == WindowMessageKeyDown || message == WindowMessageSystemKeyDown;
+    }
+
+    private static bool IsInjectedMouseWakeMessage(IntPtr wParam)
+    {
+        uint message = unchecked((uint)wParam.ToInt64());
+        return message == WindowMessageLeftButtonDown ||
+               message == WindowMessageRightButtonDown ||
+               message == WindowMessageMiddleButtonDown ||
+               message == WindowMessageXButtonDown ||
+               message == WindowMessageMouseWheel ||
+               message == WindowMessageMouseHorizontalWheel;
     }
 
     private void ThrowIfDisposed()
