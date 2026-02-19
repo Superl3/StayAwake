@@ -46,6 +46,10 @@ Download the executable that matches your Windows architecture from Releases:
 
 <https://github.com/Superl3/StayAwake/releases/latest>
 
+For auto-updated builds from every push to `main`:
+
+<https://github.com/Superl3/StayAwake/releases/tag/main-latest>
+
 - `AwakeBuddy-win-x64.exe`
 - `AwakeBuddy-win-x86.exe`
 - `AwakeBuddy-win-arm64.exe`
