@@ -136,7 +136,7 @@ internal sealed class PhysicalInputTracker : IDisposable
         }
     }
 
-    public bool TryGetIdleElapsedMilliseconds(bool allowInjectedInteractionWake, out long idleElapsedMilliseconds)
+    public bool TryGetIdleElapsedMilliseconds(bool allowInjectedInteractionActivity, out long idleElapsedMilliseconds)
     {
         lock (_gate)
         {
@@ -150,7 +150,7 @@ internal sealed class PhysicalInputTracker : IDisposable
         long lastPhysicalInputTick = Interlocked.Read(ref _lastPhysicalInputTick);
         long baselineInputTick = lastPhysicalInputTick;
 
-        if (allowInjectedInteractionWake)
+        if (allowInjectedInteractionActivity)
         {
             long lastInjectedInteractionTick = Interlocked.Read(ref _lastInjectedInteractionTick);
             if (lastInjectedInteractionTick > baselineInputTick)
@@ -165,7 +165,7 @@ internal sealed class PhysicalInputTracker : IDisposable
 
     public bool TryGetIdleElapsedMilliseconds(out long idleElapsedMilliseconds)
     {
-        return TryGetIdleElapsedMilliseconds(allowInjectedInteractionWake: false, out idleElapsedMilliseconds);
+        return TryGetIdleElapsedMilliseconds(allowInjectedInteractionActivity: false, out idleElapsedMilliseconds);
     }
 
     public void Dispose()
@@ -277,7 +277,7 @@ internal sealed class PhysicalInputTracker : IDisposable
             {
                 Interlocked.Exchange(ref _lastPhysicalInputTick, currentTick);
             }
-            else if (IsInjectedKeyboardWakeMessage(wParam))
+            else if (IsInjectedKeyboardInteractionMessage(wParam))
             {
                 Interlocked.Exchange(ref _lastInjectedInteractionTick, currentTick);
             }
@@ -298,7 +298,7 @@ internal sealed class PhysicalInputTracker : IDisposable
             {
                 Interlocked.Exchange(ref _lastPhysicalInputTick, currentTick);
             }
-            else if (IsInjectedMouseWakeMessage(wParam))
+            else if (IsInjectedMouseInteractionMessage(wParam))
             {
                 Interlocked.Exchange(ref _lastInjectedInteractionTick, currentTick);
             }
@@ -307,13 +307,13 @@ internal sealed class PhysicalInputTracker : IDisposable
         return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
     }
 
-    private static bool IsInjectedKeyboardWakeMessage(IntPtr wParam)
+    private static bool IsInjectedKeyboardInteractionMessage(IntPtr wParam)
     {
         uint message = unchecked((uint)wParam.ToInt64());
         return message == WindowMessageKeyDown || message == WindowMessageSystemKeyDown;
     }
 
-    private static bool IsInjectedMouseWakeMessage(IntPtr wParam)
+    private static bool IsInjectedMouseInteractionMessage(IntPtr wParam)
     {
         uint message = unchecked((uint)wParam.ToInt64());
         return message == WindowMessageMouseMove ||

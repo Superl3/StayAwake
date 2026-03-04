@@ -88,7 +88,7 @@ public sealed class IdleMonitor : IDisposable
 
             if (_ignoreInjectedInput)
             {
-                StartPhysicalInputTrackerWithCurrentIdleSeed();
+                SeedPhysicalInputTrackerFromCurrentIdleElapsed();
             }
 
             _timer.Change(0, _pollIntervalMilliseconds);
@@ -119,8 +119,7 @@ public sealed class IdleMonitor : IDisposable
 
             if (_ignoreInjectedInput)
             {
-                const bool allowInjectedInteractionActivity = true;
-                if (_physicalInputTracker.TryGetIdleElapsedMilliseconds(allowInjectedInteractionActivity, out idleElapsedMilliseconds))
+                if (_physicalInputTracker.TryGetIdleElapsedMilliseconds(allowInjectedInteractionActivity: true, out idleElapsedMilliseconds))
                 {
                     return true;
                 }
@@ -156,7 +155,7 @@ public sealed class IdleMonitor : IDisposable
 
             if (_ignoreInjectedInput)
             {
-                StartPhysicalInputTrackerWithCurrentIdleSeed();
+                SeedPhysicalInputTrackerFromCurrentIdleElapsed();
             }
             else
             {
@@ -165,7 +164,7 @@ public sealed class IdleMonitor : IDisposable
         }
     }
 
-    private void StartPhysicalInputTrackerWithCurrentIdleSeed()
+    private void SeedPhysicalInputTrackerFromCurrentIdleElapsed()
     {
         long initialIdleElapsedMilliseconds = 0;
         if (NativeMethods.TryGetIdleElapsedMilliseconds(out long nativeIdleElapsedMilliseconds))
