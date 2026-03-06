@@ -17,8 +17,15 @@ public sealed class TrayIconService : IDisposable
     private readonly NotifyIcon _notifyIcon;
     private readonly ContextMenuStrip _menu;
     private readonly ToolStripMenuItem _oledMenuItem;
+    private readonly ToolStripMenuItem _oledPauseMenuItem;
+    private readonly ToolStripMenuItem _pauseFiveMinutesMenuItem;
+    private readonly ToolStripMenuItem _pauseFifteenMinutesMenuItem;
+    private readonly ToolStripMenuItem _pauseThirtyMinutesMenuItem;
+    private readonly ToolStripMenuItem _resumeNowMenuItem;
     private readonly ToolStripMenuItem _antiSleepMenuItem;
     private readonly Action<bool> _onOledToggleChanged;
+    private readonly Action<int> _onOledPauseRequested;
+    private readonly Action _onOledPauseResumeRequested;
     private readonly Action<bool> _onAntiSleepToggleChanged;
     private readonly Action _onOpenSettings;
     private readonly Action _onExit;
@@ -31,12 +38,16 @@ public sealed class TrayIconService : IDisposable
         bool overlayEnabled,
         bool antiSleepEnabled,
         Action<bool> onOledToggleChanged,
+        Action<int> onOledPauseRequested,
+        Action onOledPauseResumeRequested,
         Action<bool> onAntiSleepToggleChanged,
         Action onOpenSettings,
         Action onExit)
     {
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _onOledToggleChanged = onOledToggleChanged ?? throw new ArgumentNullException(nameof(onOledToggleChanged));
+        _onOledPauseRequested = onOledPauseRequested ?? throw new ArgumentNullException(nameof(onOledPauseRequested));
+        _onOledPauseResumeRequested = onOledPauseResumeRequested ?? throw new ArgumentNullException(nameof(onOledPauseResumeRequested));
         _onAntiSleepToggleChanged = onAntiSleepToggleChanged ?? throw new ArgumentNullException(nameof(onAntiSleepToggleChanged));
         _onOpenSettings = onOpenSettings ?? throw new ArgumentNullException(nameof(onOpenSettings));
         _onExit = onExit ?? throw new ArgumentNullException(nameof(onExit));
@@ -49,6 +60,26 @@ public sealed class TrayIconService : IDisposable
             Checked = overlayEnabled
         };
         _oledMenuItem.Click += OnOledMenuItemClick;
+
+        _pauseFiveMinutesMenuItem = new ToolStripMenuItem("Pause 5 min");
+        _pauseFiveMinutesMenuItem.Click += OnPauseFiveMinutesMenuItemClick;
+
+        _pauseFifteenMinutesMenuItem = new ToolStripMenuItem("Pause 15 min");
+        _pauseFifteenMinutesMenuItem.Click += OnPauseFifteenMinutesMenuItemClick;
+
+        _pauseThirtyMinutesMenuItem = new ToolStripMenuItem("Pause 30 min");
+        _pauseThirtyMinutesMenuItem.Click += OnPauseThirtyMinutesMenuItemClick;
+
+        _resumeNowMenuItem = new ToolStripMenuItem("Resume now");
+        _resumeNowMenuItem.Enabled = false;
+        _resumeNowMenuItem.Click += OnResumeNowMenuItemClick;
+
+        _oledPauseMenuItem = new ToolStripMenuItem("OLED Care Pause");
+        _oledPauseMenuItem.DropDownItems.Add(_pauseFiveMinutesMenuItem);
+        _oledPauseMenuItem.DropDownItems.Add(_pauseFifteenMinutesMenuItem);
+        _oledPauseMenuItem.DropDownItems.Add(_pauseThirtyMinutesMenuItem);
+        _oledPauseMenuItem.DropDownItems.Add(new ToolStripSeparator());
+        _oledPauseMenuItem.DropDownItems.Add(_resumeNowMenuItem);
 
         _antiSleepMenuItem = new ToolStripMenuItem("Anti-sleep")
         {
@@ -70,6 +101,7 @@ public sealed class TrayIconService : IDisposable
         exitMenuItem.Click += OnExitMenuItemClick;
 
         _menu.Items.Add(_oledMenuItem);
+        _menu.Items.Add(_oledPauseMenuItem);
         _menu.Items.Add(_antiSleepMenuItem);
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(openSettingsMenuItem);
@@ -100,6 +132,8 @@ public sealed class TrayIconService : IDisposable
             _isUpdatingMenuState = false;
 
             _oledMenuItem.Text = status.OverlayVisible ? "OLED Care Mode (active)" : "OLED Care Mode";
+            _oledPauseMenuItem.Text = CreatePauseMenuText(status);
+            _resumeNowMenuItem.Enabled = status.OverlayPauseActive;
             _antiSleepMenuItem.Text = status.AntiSleepActive ? "Anti-sleep (active)" : "Anti-sleep";
             _notifyIcon.Text = CreateTooltipText(status);
         });
@@ -115,6 +149,10 @@ public sealed class TrayIconService : IDisposable
         _isDisposed = true;
 
         _oledMenuItem.Click -= OnOledMenuItemClick;
+        _pauseFiveMinutesMenuItem.Click -= OnPauseFiveMinutesMenuItemClick;
+        _pauseFifteenMinutesMenuItem.Click -= OnPauseFifteenMinutesMenuItemClick;
+        _pauseThirtyMinutesMenuItem.Click -= OnPauseThirtyMinutesMenuItemClick;
+        _resumeNowMenuItem.Click -= OnResumeNowMenuItemClick;
         _antiSleepMenuItem.Click -= OnAntiSleepMenuItemClick;
 
         _notifyIcon.Visible = false;
@@ -233,6 +271,26 @@ public sealed class TrayIconService : IDisposable
         _onAntiSleepToggleChanged(_antiSleepMenuItem.Checked);
     }
 
+    private void OnPauseFiveMinutesMenuItemClick(object? sender, EventArgs e)
+    {
+        _onOledPauseRequested(5);
+    }
+
+    private void OnPauseFifteenMinutesMenuItemClick(object? sender, EventArgs e)
+    {
+        _onOledPauseRequested(15);
+    }
+
+    private void OnPauseThirtyMinutesMenuItemClick(object? sender, EventArgs e)
+    {
+        _onOledPauseRequested(30);
+    }
+
+    private void OnResumeNowMenuItemClick(object? sender, EventArgs e)
+    {
+        _onOledPauseResumeRequested();
+    }
+
     private void OnOpenSettingsMenuItemClick(object? sender, EventArgs e)
     {
         _onOpenSettings();
@@ -256,9 +314,11 @@ public sealed class TrayIconService : IDisposable
 
     private static string CreateTooltipText(RuntimeStatus status)
     {
-        string oledText = status.OverlayEnabled
-            ? (status.OverlayVisible ? "On*" : "On")
-            : "Off";
+        string oledText = status.OverlayPauseActive
+            ? "Paused"
+            : status.OverlayEnabled
+                ? (status.OverlayVisible ? "On*" : "On")
+                : "Off";
 
         string antiSleepText = status.AntiSleepEnabled
             ? (status.AntiSleepActive ? "On*" : "On")
@@ -266,6 +326,24 @@ public sealed class TrayIconService : IDisposable
 
         string tooltip = $"{BaseTooltip} O:{oledText} S:{antiSleepText}";
         return tooltip.Length > 63 ? tooltip[..63] : tooltip;
+    }
+
+    private static string CreatePauseMenuText(RuntimeStatus status)
+    {
+        if (!status.OverlayPauseActive)
+        {
+            return "OLED Care Pause";
+        }
+
+        if (!status.OverlayPauseUntil.HasValue)
+        {
+            return "OLED Care Pause (active)";
+        }
+
+        int remainingMinutes = (int)Math.Ceiling(Math.Max(0d, (status.OverlayPauseUntil.Value - DateTimeOffset.UtcNow).TotalMinutes));
+        return remainingMinutes > 0
+            ? $"OLED Care Pause ({remainingMinutes}m left)"
+            : "OLED Care Pause (active)";
     }
 
     private void ThrowIfDisposed()

@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Reflection;
 using System.Windows;
 using AwakeBuddy.Core;
@@ -12,7 +11,6 @@ namespace AwakeBuddy;
 
 public partial class App : System.Windows.Application
 {
-    private const int MaxParentSearchDepth = 10;
     private SingleInstanceGuard? _singleInstanceGuard;
     private AwakeCoordinator? _awakeCoordinator;
     private SettingsStore? _settingsStore;
@@ -20,78 +18,95 @@ public partial class App : System.Windows.Application
     private SettingsWindow? _settingsWindow;
     private ToggleFeedbackNotifier? _toggleFeedbackNotifier;
     private GlobalHotkeyService? _globalHotkeyService;
+    private bool _isFatalStartupShutdown;
 
     public static AppSettings CurrentSettings { get; private set; } = AppSettings.CreateDefault();
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        EnsureStartupLog();
-
-        if (!SingleInstanceGuard.TryAcquire(out _singleInstanceGuard))
+        try
         {
-            Shutdown(0);
-            return;
+            EnsureStartupLog();
+
+            if (!SingleInstanceGuard.TryAcquire(out _singleInstanceGuard))
+            {
+                Shutdown(0);
+                return;
+            }
+
+            _settingsStore = new SettingsStore();
+            CurrentSettings = _settingsStore.Load();
+            StartupRegistration.Apply(CurrentSettings.StartWithWindows);
+
+            int idleThresholdSeconds = Math.Max(1, CurrentSettings.IdleThresholdSeconds);
+            IdleMonitor idleMonitor = new(idleThresholdSeconds);
+            AntiSleepService antiSleepService = new(CurrentSettings);
+            StatusWriter statusWriter = new();
+
+            _awakeCoordinator = new AwakeCoordinator(
+                idleMonitor,
+                antiSleepService,
+                statusWriter,
+                CurrentSettings,
+                _settingsStore.SettingsFilePath,
+                new WpfOledOverlay());
+
+            _toggleFeedbackNotifier = new ToggleFeedbackNotifier(Dispatcher);
+
+            _awakeCoordinator.StatusChanged += OnCoordinatorStatusChanged;
+            _awakeCoordinator.Start();
+
+            _trayIconService = new TrayIconService(
+                Dispatcher,
+                CurrentSettings.OverlayEnabled,
+                CurrentSettings.AntiSleepEnabled,
+                onOledToggleChanged: OnOverlayToggleChanged,
+                onOledPauseRequested: OnOverlayPauseRequested,
+                onOledPauseResumeRequested: OnOverlayPauseResumeRequested,
+                onAntiSleepToggleChanged: OnAntiSleepToggleChanged,
+                onOpenSettings: OpenSettingsWindow,
+                onExit: ExitFromTray);
+            _trayIconService.UpdateStatus(_awakeCoordinator.GetStatusSnapshot());
+
+            _globalHotkeyService = new GlobalHotkeyService();
+            _globalHotkeyService.ToggleOverlayRequested += OnToggleOverlayHotkeyRequested;
+            _globalHotkeyService.OpenSettingsRequested += OpenSettingsWindow;
+
+            if (HasArgument(e.Args, "--open-settings"))
+            {
+                Dispatcher.BeginInvoke((Action)OpenSettingsWindow);
+            }
+
+            base.OnStartup(e);
         }
-
-        _settingsStore = new SettingsStore();
-        CurrentSettings = _settingsStore.Load();
-        StartupRegistration.Apply(CurrentSettings.StartWithWindows);
-
-        int idleThresholdSeconds = Math.Max(1, CurrentSettings.IdleThresholdSeconds);
-        IdleMonitor idleMonitor = new(idleThresholdSeconds);
-        AntiSleepService antiSleepService = new(CurrentSettings);
-        StatusWriter statusWriter = new();
-
-        _awakeCoordinator = new AwakeCoordinator(
-            idleMonitor,
-            antiSleepService,
-            statusWriter,
-            CurrentSettings,
-            _settingsStore.SettingsFilePath,
-            new WpfOledOverlay());
-
-        _toggleFeedbackNotifier = new ToggleFeedbackNotifier(Dispatcher);
-
-        _awakeCoordinator.StatusChanged += OnCoordinatorStatusChanged;
-        _awakeCoordinator.Start();
-
-        _trayIconService = new TrayIconService(
-            Dispatcher,
-            CurrentSettings.OverlayEnabled,
-            CurrentSettings.AntiSleepEnabled,
-            onOledToggleChanged: OnOverlayToggleChanged,
-            onAntiSleepToggleChanged: OnAntiSleepToggleChanged,
-            onOpenSettings: OpenSettingsWindow,
-            onExit: ExitFromTray);
-        _trayIconService.UpdateStatus(_awakeCoordinator.GetStatusSnapshot());
-
-        _globalHotkeyService = new GlobalHotkeyService();
-        _globalHotkeyService.ToggleOverlayRequested += OnToggleOverlayHotkeyRequested;
-        _globalHotkeyService.OpenSettingsRequested += OpenSettingsWindow;
-
-        if (HasArgument(e.Args, "--open-settings"))
+        catch (Exception ex)
         {
-            Dispatcher.BeginInvoke((Action)OpenSettingsWindow);
+            StartupLog.AppendException("fatal startup exception", ex);
+            DisposeRuntimeResources();
+            _isFatalStartupShutdown = true;
+            MessageBox.Show(
+                "AwakeBuddy could not start. See logs/startup.log for details and try launching again.",
+                "AwakeBuddy",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            Shutdown(-1);
         }
-
-        base.OnStartup(e);
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        if (_isFatalStartupShutdown)
+        {
+            base.OnExit(e);
+            return;
+        }
+
         if (_awakeCoordinator is not null)
         {
             _awakeCoordinator.StatusChanged -= OnCoordinatorStatusChanged;
         }
 
-        _settingsWindow?.Close();
-        _settingsWindow = null;
-
-        _trayIconService?.Dispose();
-        _globalHotkeyService?.Dispose();
-        _toggleFeedbackNotifier?.Dispose();
-        _awakeCoordinator?.Dispose();
-        _singleInstanceGuard?.Dispose();
+        DisposeRuntimeResources();
         base.OnExit(e);
     }
 
@@ -108,6 +123,21 @@ public partial class App : System.Windows.Application
     private void OnAntiSleepToggleChanged(bool enabled)
     {
         ApplyTrayToggles(overlayEnabled: null, antiSleepEnabled: enabled);
+    }
+
+    private void OnOverlayPauseRequested(int durationMinutes)
+    {
+        if (_awakeCoordinator is null || durationMinutes <= 0)
+        {
+            return;
+        }
+
+        _awakeCoordinator.PauseOverlayTemporarily(TimeSpan.FromMinutes(durationMinutes));
+    }
+
+    private void OnOverlayPauseResumeRequested()
+    {
+        _awakeCoordinator?.ResumeOverlayNow();
     }
 
     private void ApplyTrayToggles(bool? overlayEnabled, bool? antiSleepEnabled)
@@ -245,32 +275,29 @@ public partial class App : System.Windows.Application
 
     private static void EnsureStartupLog()
     {
-        string logsPath = ResolveLogsDirectory();
-
-        Directory.CreateDirectory(logsPath);
-
         string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0.0";
-        string message = $"{DateTimeOffset.Now:O} AwakeBuddy startup version={version}{Environment.NewLine}";
-
-        File.AppendAllText(Path.Combine(logsPath, "startup.log"), message);
+        StartupLog.AppendLine($"AwakeBuddy startup version={version}");
     }
 
-    private static string ResolveLogsDirectory()
+    private void DisposeRuntimeResources()
     {
-        DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);
+        _settingsWindow?.Close();
+        _settingsWindow = null;
 
-        for (int depth = 0; depth < MaxParentSearchDepth && current is not null; depth++)
-        {
-            string candidate = Path.Combine(current.FullName, "logs");
-            if (Directory.Exists(candidate))
-            {
-                return candidate;
-            }
+        _trayIconService?.Dispose();
+        _trayIconService = null;
 
-            current = current.Parent;
-        }
+        _globalHotkeyService?.Dispose();
+        _globalHotkeyService = null;
 
-        return Path.Combine(AppContext.BaseDirectory, "logs");
+        _toggleFeedbackNotifier?.Dispose();
+        _toggleFeedbackNotifier = null;
+
+        _awakeCoordinator?.Dispose();
+        _awakeCoordinator = null;
+
+        _singleInstanceGuard?.Dispose();
+        _singleInstanceGuard = null;
     }
 
     private static bool HasArgument(string[] args, string expected)

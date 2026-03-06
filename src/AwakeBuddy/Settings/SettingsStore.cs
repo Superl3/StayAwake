@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
+using AwakeBuddy.Core;
 
 namespace AwakeBuddy.Settings;
 
@@ -78,15 +79,108 @@ public sealed class SettingsStore
 
     public void Save(AppSettings settings)
     {
+        ArgumentNullException.ThrowIfNull(settings);
+
         try
         {
             Directory.CreateDirectory(SettingsDirectoryPath);
-            string json = JsonSerializer.Serialize(settings, SerializerOptions);
+            AppSettings sanitizedSettings = Sanitize(settings);
+            string json = JsonSerializer.Serialize(sanitizedSettings, SerializerOptions);
             WriteSettingsAtomically(json);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             LogFallback("settings io error writing file");
+        }
+    }
+
+    public static AppSettings Sanitize(AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        SettingsDocument document = new()
+        {
+            SchemaVersion = settings.SchemaVersion,
+            IdleThresholdSeconds = settings.IdleThresholdSeconds,
+            OverlayOpacity = settings.OverlayOpacity,
+            OverlayEnabled = settings.OverlayEnabled,
+            OverlayMonitorDeviceName = settings.OverlayMonitorDeviceName,
+            AntiSleepEnabled = settings.AntiSleepEnabled,
+            AntiSleepIntervalSeconds = settings.AntiSleepIntervalSeconds,
+            SleepProtectionScope = settings.SleepProtectionScope,
+            IdleInputPolicy = settings.IdleInputPolicy,
+            StartWithWindows = settings.StartWithWindows
+        };
+
+        return ResolveDefaults(document, AppSettings.CreateDefault());
+    }
+
+    public static bool TryLoadFromFile(string filePath, out AppSettings settings, out string error)
+    {
+        settings = AppSettings.CreateDefault();
+        error = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            error = "Import path is required.";
+            return false;
+        }
+
+        try
+        {
+            string json = File.ReadAllText(filePath);
+            SettingsDocument? document = JsonSerializer.Deserialize<SettingsDocument>(json, SerializerOptions);
+
+            if (document is null)
+            {
+                error = "The selected file is not valid AwakeBuddy settings JSON.";
+                return false;
+            }
+
+            settings = ResolveDefaults(document, AppSettings.CreateDefault());
+            return true;
+        }
+        catch (JsonException)
+        {
+            error = "The selected file is not valid JSON.";
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            error = $"Unable to read settings file: {ex.Message}";
+            return false;
+        }
+    }
+
+    public static bool TryExportToFile(AppSettings settings, string filePath, out string error)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        error = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            error = "Export path is required.";
+            return false;
+        }
+
+        try
+        {
+            string directoryPath = Path.GetDirectoryName(filePath) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(directoryPath))
+            {
+                Directory.CreateDirectory(directoryPath);
+            }
+
+            AppSettings sanitizedSettings = Sanitize(settings);
+            string json = JsonSerializer.Serialize(sanitizedSettings, SerializerOptions);
+            File.WriteAllText(filePath, json);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            error = $"Unable to export settings: {ex.Message}";
+            return false;
         }
     }
 
@@ -162,6 +256,22 @@ public sealed class SettingsStore
             protectionScope = defaults.SleepProtectionScope;
         }
 
+        IdleInputPolicy idleInputPolicy = defaults.IdleInputPolicy;
+        if (document.IdleInputPolicy.HasValue)
+        {
+            IdleInputPolicy candidate = document.IdleInputPolicy.Value;
+            if (Enum.IsDefined(candidate))
+            {
+                idleInputPolicy = candidate;
+            }
+        }
+        else if (document.IgnoreInjectedInputForIdle.HasValue)
+        {
+            idleInputPolicy = document.IgnoreInjectedInputForIdle.Value
+                ? IdleInputPolicy.Hybrid
+                : IdleInputPolicy.Native;
+        }
+
         string overlayMonitorDeviceName = document.OverlayMonitorDeviceName?.Trim() ?? string.Empty;
 
         return new AppSettings
@@ -174,7 +284,7 @@ public sealed class SettingsStore
             AntiSleepEnabled = document.AntiSleepEnabled.GetValueOrDefault(defaults.AntiSleepEnabled),
             AntiSleepIntervalSeconds = antiSleepInterval,
             SleepProtectionScope = protectionScope,
-            IgnoreInjectedInputForIdle = document.IgnoreInjectedInputForIdle.GetValueOrDefault(defaults.IgnoreInjectedInputForIdle),
+            IdleInputPolicy = idleInputPolicy,
             StartWithWindows = document.StartWithWindows.GetValueOrDefault(defaults.StartWithWindows)
         };
     }
@@ -183,34 +293,12 @@ public sealed class SettingsStore
     {
         try
         {
-            string logsPath = ResolveLogsDirectory();
-            Directory.CreateDirectory(logsPath);
-            string message = $"{DateTimeOffset.Now:O} settings fallback {reason}{Environment.NewLine}";
-            File.AppendAllText(Path.Combine(logsPath, "startup.log"), message);
+            StartupLog.AppendLine($"settings fallback {reason}");
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"SettingsStore: failed to write startup log: {ex}");
         }
-    }
-
-    private static string ResolveLogsDirectory()
-    {
-        const int maxParentSearchDepth = 10;
-        DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);
-
-        for (int depth = 0; depth < maxParentSearchDepth && current is not null; depth++)
-        {
-            string candidate = Path.Combine(current.FullName, "logs");
-            if (Directory.Exists(candidate))
-            {
-                return candidate;
-            }
-
-            current = current.Parent;
-        }
-
-        return Path.Combine(AppContext.BaseDirectory, "logs");
     }
 
     private sealed class SettingsDocument
@@ -223,6 +311,7 @@ public sealed class SettingsStore
         public bool? AntiSleepEnabled { get; set; }
         public int? AntiSleepIntervalSeconds { get; set; }
         public SleepProtectionScope? SleepProtectionScope { get; set; }
+        public IdleInputPolicy? IdleInputPolicy { get; set; }
         public bool? IgnoreInjectedInputForIdle { get; set; }
         public bool? StartWithWindows { get; set; }
     }

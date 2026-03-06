@@ -10,6 +10,8 @@ public sealed record RuntimeStatus(
     bool IsIdle,
     bool OverlayEnabled,
     bool OverlayVisible,
+    bool OverlayPauseActive,
+    DateTimeOffset? OverlayPauseUntil,
     bool AntiSleepEnabled,
     bool AntiSleepActive,
     string SettingsPath);

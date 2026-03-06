@@ -1,12 +1,10 @@
 using System;
-using System.IO;
 using System.Threading;
 
 namespace AwakeBuddy.Core;
 
 public sealed class SingleInstanceGuard : IDisposable
 {
-    private const int MaxParentSearchDepth = 10;
     private const string DefaultMutexName = @"Local\AwakeBuddy";
 
     private readonly Mutex _mutex;
@@ -66,31 +64,10 @@ public sealed class SingleInstanceGuard : IDisposable
     {
         try
         {
-            string logsPath = ResolveLogsDirectory();
-            Directory.CreateDirectory(logsPath);
-            string line = $"{DateTimeOffset.Now:O} {message}{Environment.NewLine}";
-            File.AppendAllText(Path.Combine(logsPath, "startup.log"), line);
+            StartupLog.AppendLine(message);
         }
         catch
         {
         }
-    }
-
-    private static string ResolveLogsDirectory()
-    {
-        DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);
-
-        for (int depth = 0; depth < MaxParentSearchDepth && current is not null; depth++)
-        {
-            string candidate = Path.Combine(current.FullName, "logs");
-            if (Directory.Exists(candidate))
-            {
-                return candidate;
-            }
-
-            current = current.Parent;
-        }
-
-        return Path.Combine(AppContext.BaseDirectory, "logs");
     }
 }

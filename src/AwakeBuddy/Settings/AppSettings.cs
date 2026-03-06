@@ -6,6 +6,13 @@ public enum SleepProtectionScope
     SystemAndDisplaySleep = 1
 }
 
+public enum IdleInputPolicy
+{
+    Native = 0,
+    Hybrid = 1,
+    PhysicalOnly = 2
+}
+
 public sealed class AppSettings
 {
     public const int CurrentSchemaVersion = 1;
@@ -18,7 +25,7 @@ public sealed class AppSettings
     public bool AntiSleepEnabled { get; set; } = false;
     public int AntiSleepIntervalSeconds { get; set; } = 55;
     public SleepProtectionScope SleepProtectionScope { get; set; } = SleepProtectionScope.SystemSleepOnly;
-    public bool IgnoreInjectedInputForIdle { get; set; } = false;
+    public IdleInputPolicy IdleInputPolicy { get; set; } = IdleInputPolicy.Native;
     public bool StartWithWindows { get; set; } = false;
 
     public static AppSettings CreateDefault() => new();
@@ -35,7 +42,7 @@ public sealed class AppSettings
             AntiSleepEnabled = AntiSleepEnabled,
             AntiSleepIntervalSeconds = AntiSleepIntervalSeconds,
             SleepProtectionScope = SleepProtectionScope,
-            IgnoreInjectedInputForIdle = IgnoreInjectedInputForIdle,
+            IdleInputPolicy = IdleInputPolicy,
             StartWithWindows = StartWithWindows
         };
     }

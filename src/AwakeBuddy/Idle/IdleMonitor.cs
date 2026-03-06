@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using AwakeBuddy.Settings;
 using Timer = System.Threading.Timer;
 
 namespace AwakeBuddy.Idle;
@@ -22,7 +23,7 @@ public sealed class IdleMonitor : IDisposable
     private bool _isRunning;
     private bool _isIdle;
     private bool _isDisposed;
-    private bool _ignoreInjectedInput;
+    private IdleInputPolicy _idleInputPolicy = IdleInputPolicy.Native;
 
     /// <summary>
     /// Events are raised on <paramref name="eventContext"/> when provided; otherwise they are raised on the timer's ThreadPool callback thread.
@@ -86,7 +87,7 @@ public sealed class IdleMonitor : IDisposable
             _timer ??= new Timer(OnPollTimerTick, null, Timeout.Infinite, Timeout.Infinite);
             _isRunning = true;
 
-            if (_ignoreInjectedInput)
+            if (UsesPhysicalInputTracker(_idleInputPolicy))
             {
                 SeedPhysicalInputTrackerFromCurrentIdleElapsed();
             }
@@ -117,43 +118,58 @@ public sealed class IdleMonitor : IDisposable
         {
             ThrowIfDisposed();
 
-            if (_ignoreInjectedInput)
+            if (_idleInputPolicy == IdleInputPolicy.Native)
             {
-                if (_physicalInputTracker.TryGetIdleElapsedMilliseconds(allowInjectedInteractionActivity: true, out idleElapsedMilliseconds))
-                {
-                    return true;
-                }
-
-                if (_physicalInputTracker.IsRunning && !_physicalInputTracker.HasInitializationFailed)
-                {
-                    idleElapsedMilliseconds = 0;
-                    return false;
-                }
+                return NativeMethods.TryGetIdleElapsedMilliseconds(out idleElapsedMilliseconds);
             }
-        }
 
-        return NativeMethods.TryGetIdleElapsedMilliseconds(out idleElapsedMilliseconds);
+            bool allowInjectedInteractionActivity = _idleInputPolicy == IdleInputPolicy.Hybrid;
+
+            if (_physicalInputTracker.TryGetIdleElapsedMilliseconds(allowInjectedInteractionActivity, out idleElapsedMilliseconds))
+            {
+                return true;
+            }
+
+            if (_physicalInputTracker.IsRunning && !_physicalInputTracker.HasInitializationFailed)
+            {
+                idleElapsedMilliseconds = 0;
+                return false;
+            }
+
+            if (_idleInputPolicy == IdleInputPolicy.Hybrid)
+            {
+                return NativeMethods.TryGetIdleElapsedMilliseconds(out idleElapsedMilliseconds);
+            }
+
+            idleElapsedMilliseconds = 0;
+            return false;
+        }
     }
 
-    public void UpdateIgnoreInjectedInput(bool ignoreInjectedInput)
+    public void UpdateIdleInputPolicy(IdleInputPolicy idleInputPolicy)
     {
         lock (_gate)
         {
             ThrowIfDisposed();
 
-            if (_ignoreInjectedInput == ignoreInjectedInput)
+            if (!Enum.IsDefined(idleInputPolicy))
+            {
+                idleInputPolicy = IdleInputPolicy.Native;
+            }
+
+            if (_idleInputPolicy == idleInputPolicy)
             {
                 return;
             }
 
-            _ignoreInjectedInput = ignoreInjectedInput;
+            _idleInputPolicy = idleInputPolicy;
 
             if (!_isRunning)
             {
                 return;
             }
 
-            if (_ignoreInjectedInput)
+            if (UsesPhysicalInputTracker(_idleInputPolicy))
             {
                 SeedPhysicalInputTrackerFromCurrentIdleElapsed();
             }
@@ -162,6 +178,11 @@ public sealed class IdleMonitor : IDisposable
                 _physicalInputTracker.Stop();
             }
         }
+    }
+
+    private static bool UsesPhysicalInputTracker(IdleInputPolicy idleInputPolicy)
+    {
+        return idleInputPolicy is IdleInputPolicy.Hybrid or IdleInputPolicy.PhysicalOnly;
     }
 
     private void SeedPhysicalInputTrackerFromCurrentIdleElapsed()

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Controls;
@@ -691,6 +692,10 @@ public sealed class AwakeCoordinator : IDisposable
     private bool _isIdle;
     private bool _antiSleepActive;
     private bool _overlayVisible;
+    private bool _isOverlayPauseActive;
+    private DateTimeOffset? _overlayPauseUntil;
+    private bool _overlayEnabledBeforePause;
+    private Timer? _overlayPauseTimer;
 
     public event Action<RuntimeStatus>? StatusChanged;
 
@@ -712,7 +717,7 @@ public sealed class AwakeCoordinator : IDisposable
         _overlay.SetOpacity(_settings.OverlayOpacity);
         _overlay.SetTargetMonitor(_settings.OverlayMonitorDeviceName);
         _overlay.SetHint(OverlayHintText, _settings.OverlayEnabled && _settings.IdleThresholdSeconds == 0);
-        _idleMonitor.UpdateIgnoreInjectedInput(_settings.IgnoreInjectedInputForIdle);
+        _idleMonitor.UpdateIdleInputPolicy(_settings.IdleInputPolicy);
         _idleMonitor.IdleStarted += OnIdleStarted;
         _idleMonitor.IdleStopped += OnIdleStopped;
     }
@@ -735,7 +740,7 @@ public sealed class AwakeCoordinator : IDisposable
             _isRunning = true;
             enableAntiSleep = _settings.AntiSleepEnabled;
             _antiSleepActive = enableAntiSleep;
-            showOverlay = _settings.OverlayEnabled && _settings.IdleThresholdSeconds == 0;
+            showOverlay = ComputeOverlayVisibleLocked();
             _overlayVisible = showOverlay;
             status = CreateStatusLocked();
         }
@@ -802,6 +807,49 @@ public sealed class AwakeCoordinator : IDisposable
         }
     }
 
+    public void PauseOverlayTemporarily(TimeSpan duration)
+    {
+        if (duration <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(duration));
+        }
+
+        bool hideOverlay = false;
+        RuntimeStatus status;
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+
+            DateTimeOffset pauseUntil = DateTimeOffset.UtcNow.Add(duration);
+            _isOverlayPauseActive = true;
+            _overlayPauseUntil = pauseUntil;
+            _overlayEnabledBeforePause = _settings.OverlayEnabled;
+            _overlayPauseTimer ??= new Timer(OnOverlayPauseTimerElapsed, null, Timeout.Infinite, Timeout.Infinite);
+            _overlayPauseTimer.Change(duration, Timeout.InfiniteTimeSpan);
+
+            if (_overlayVisible)
+            {
+                hideOverlay = true;
+                _overlayVisible = false;
+            }
+
+            status = CreateStatusLocked();
+        }
+
+        if (hideOverlay)
+        {
+            _overlay.Hide();
+        }
+
+        PublishStatus(status);
+    }
+
+    public void ResumeOverlayNow()
+    {
+        ApplyOverlayPauseResume(isManualResume: true);
+    }
+
     public void UpdateSettings(AppSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -809,7 +857,8 @@ public sealed class AwakeCoordinator : IDisposable
         bool setOpacity = false;
         double opacity = 0;
         bool updateIdleThreshold = false;
-        bool updateIgnoreInjectedInput = false;
+        bool updateIdleInputPolicy = false;
+        bool cancelOverlayPauseOverride = false;
         int idleThresholdSeconds = 0;
         string overlayMonitorDeviceName = string.Empty;
         bool hintEnabled = false;
@@ -828,7 +877,8 @@ public sealed class AwakeCoordinator : IDisposable
 
             setOpacity = _settings.OverlayOpacity != settings.OverlayOpacity;
             updateIdleThreshold = _settings.IdleThresholdSeconds != settings.IdleThresholdSeconds;
-            updateIgnoreInjectedInput = _settings.IgnoreInjectedInputForIdle != settings.IgnoreInjectedInputForIdle;
+            updateIdleInputPolicy = _settings.IdleInputPolicy != settings.IdleInputPolicy;
+            cancelOverlayPauseOverride = _isOverlayPauseActive && _settings.OverlayEnabled != settings.OverlayEnabled;
             updateAntiSleepConfiguration =
                 _settings.AntiSleepIntervalSeconds != settings.AntiSleepIntervalSeconds ||
                 _settings.SleepProtectionScope != settings.SleepProtectionScope;
@@ -841,7 +891,12 @@ public sealed class AwakeCoordinator : IDisposable
             _settings.AntiSleepEnabled = settings.AntiSleepEnabled;
             _settings.AntiSleepIntervalSeconds = settings.AntiSleepIntervalSeconds;
             _settings.SleepProtectionScope = settings.SleepProtectionScope;
-            _settings.IgnoreInjectedInputForIdle = settings.IgnoreInjectedInputForIdle;
+            _settings.IdleInputPolicy = settings.IdleInputPolicy;
+
+            if (cancelOverlayPauseOverride)
+            {
+                ClearOverlayPauseLocked();
+            }
 
             opacity = _settings.OverlayOpacity;
             idleThresholdSeconds = _settings.IdleThresholdSeconds;
@@ -852,7 +907,7 @@ public sealed class AwakeCoordinator : IDisposable
 
             if (_isRunning)
             {
-                bool nextOverlayVisible = _settings.OverlayEnabled && (_settings.IdleThresholdSeconds == 0 || _isIdle);
+                bool nextOverlayVisible = ComputeOverlayVisibleLocked();
 
                 if (_overlayVisible != nextOverlayVisible)
                 {
@@ -885,9 +940,9 @@ public sealed class AwakeCoordinator : IDisposable
             _idleMonitor.UpdateIdleThresholdSeconds(idleThresholdSeconds);
         }
 
-        if (updateIgnoreInjectedInput)
+        if (updateIdleInputPolicy)
         {
-            _idleMonitor.UpdateIgnoreInjectedInput(_settings.IgnoreInjectedInputForIdle);
+            _idleMonitor.UpdateIdleInputPolicy(_settings.IdleInputPolicy);
         }
 
         if (updateAntiSleepConfiguration)
@@ -929,6 +984,7 @@ public sealed class AwakeCoordinator : IDisposable
         {
             alreadyDisposed = _isDisposed;
             _isDisposed = true;
+            _overlayPauseTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         }
 
         if (alreadyDisposed)
@@ -940,6 +996,8 @@ public sealed class AwakeCoordinator : IDisposable
         _idleMonitor.IdleStopped -= OnIdleStopped;
 
         Stop();
+        _overlayPauseTimer?.Dispose();
+        _overlayPauseTimer = null;
         _overlay.Dispose();
         _idleMonitor.Dispose();
         _antiSleepService.Dispose();
@@ -970,13 +1028,68 @@ public sealed class AwakeCoordinator : IDisposable
 
             _isIdle = isIdle;
 
-            bool nextOverlayVisible = _settings.OverlayEnabled && (_settings.IdleThresholdSeconds == 0 || _isIdle);
+            bool nextOverlayVisible = ComputeOverlayVisibleLocked();
 
             if (_overlayVisible != nextOverlayVisible)
             {
                 showOverlay = nextOverlayVisible;
                 hideOverlay = !nextOverlayVisible;
                 _overlayVisible = nextOverlayVisible;
+            }
+
+            status = CreateStatusLocked();
+        }
+
+        if (showOverlay)
+        {
+            _overlay.Show();
+        }
+        else if (hideOverlay)
+        {
+            _overlay.Hide();
+        }
+
+        PublishStatus(status);
+    }
+
+    private void OnOverlayPauseTimerElapsed(object? state)
+    {
+        ApplyOverlayPauseResume(isManualResume: false);
+    }
+
+    private void ApplyOverlayPauseResume(bool isManualResume)
+    {
+        bool showOverlay = false;
+        bool hideOverlay = false;
+        RuntimeStatus status;
+
+        lock (_gate)
+        {
+            if (_isDisposed || !_isOverlayPauseActive)
+            {
+                return;
+            }
+
+            if (!isManualResume && _overlayPauseUntil.HasValue && _overlayPauseUntil.Value > DateTimeOffset.UtcNow)
+            {
+                TimeSpan remaining = _overlayPauseUntil.Value - DateTimeOffset.UtcNow;
+                _overlayPauseTimer?.Change(remaining, Timeout.InfiniteTimeSpan);
+                return;
+            }
+
+            bool shouldResumeOverlay = _overlayEnabledBeforePause;
+            ClearOverlayPauseLocked();
+
+            if (_isRunning)
+            {
+                bool nextOverlayVisible = shouldResumeOverlay && (_settings.IdleThresholdSeconds == 0 || _isIdle);
+
+                if (_overlayVisible != nextOverlayVisible)
+                {
+                    showOverlay = nextOverlayVisible;
+                    hideOverlay = !nextOverlayVisible;
+                    _overlayVisible = nextOverlayVisible;
+                }
             }
 
             status = CreateStatusLocked();
@@ -1007,9 +1120,29 @@ public sealed class AwakeCoordinator : IDisposable
             IsIdle: _isIdle,
             OverlayEnabled: _settings.OverlayEnabled,
             OverlayVisible: _overlayVisible,
+            OverlayPauseActive: _isOverlayPauseActive,
+            OverlayPauseUntil: _overlayPauseUntil,
             AntiSleepEnabled: _settings.AntiSleepEnabled,
             AntiSleepActive: _antiSleepActive,
             SettingsPath: _settingsPath);
+    }
+
+    private bool ComputeOverlayVisibleLocked()
+    {
+        if (!_isRunning || _isOverlayPauseActive)
+        {
+            return false;
+        }
+
+        return _settings.OverlayEnabled && (_settings.IdleThresholdSeconds == 0 || _isIdle);
+    }
+
+    private void ClearOverlayPauseLocked()
+    {
+        _isOverlayPauseActive = false;
+        _overlayPauseUntil = null;
+        _overlayEnabledBeforePause = false;
+        _overlayPauseTimer?.Change(Timeout.Infinite, Timeout.Infinite);
     }
 
     private void ThrowIfDisposed()
