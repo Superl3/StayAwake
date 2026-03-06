@@ -1,0 +1,26 @@
+name: Build Verification
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Build AwakeBuddy
+        shell: pwsh
+        run: dotnet build src/AwakeBuddy/AwakeBuddy.csproj -c Release
+
+      - name: Verify build output
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1 -Configuration Release

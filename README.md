@@ -15,10 +15,12 @@ It combines three goals:
 - OLED Care Mode with monitor selection and `idleThresholdSeconds = 0` always-on mode
 - Optional physical-input-only idle detection (`ignoreInjectedInputForIdle`) to reduce false activity from injected/remote tools
 - Anti-sleep engine with configurable interval and scope
+- Optional `Start with Windows` toggle backed by HKCU Run registration
 - Global hotkeys:
   - `Ctrl+Alt+O`: Toggle OLED Care Mode
   - `Ctrl+Alt+S`: Open settings
 - Single-file publish workflow (`AwakeBuddy.exe`) with automatic artifact cleanup
+- CI build verification workflow on push/PR (`.github/workflows/build.yml`)
 
 ## Screenshot
 
@@ -139,7 +141,8 @@ Example:
   "antiSleepEnabled": true,
   "antiSleepIntervalSeconds": 55,
   "sleepProtectionScope": 1,
-  "ignoreInjectedInputForIdle": false
+  "ignoreInjectedInputForIdle": false,
+  "startWithWindows": false
 }
 ```
 
@@ -156,6 +159,7 @@ Field reference:
 | `antiSleepIntervalSeconds` | int | Keep-awake heartbeat interval in seconds |
 | `sleepProtectionScope` | int | `0`: system sleep only, `1`: system + display sleep |
 | `ignoreInjectedInputForIdle` | bool | When `true`, idle detection prefers physical keyboard/mouse events and ignores injected low-level input flags |
+| `startWithWindows` | bool | When `true`, AwakeBuddy registers itself under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` |
 
 Status output is written to `%APPDATA%\AwakeBuddy\status.json`.
 
@@ -199,6 +203,8 @@ Checks performed:
 - `dotnet build` for the app project
 - `powercfg /requests` snapshot (requires elevated shell)
 - `%APPDATA%\AwakeBuddy\status.json` dump
+
+GitHub Actions also runs build verification on every push and pull request using `.github/workflows/build.yml`, executing the same release build and verify script.
 
 ## Troubleshooting
 
