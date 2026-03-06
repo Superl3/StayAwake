@@ -216,6 +216,7 @@ function Write-InteractiveSettings {
     $antiSleepEnabled = Read-YesNo -Prompt 'Enable Anti-sleep' -Default $true
     $antiSleepInterval = Read-Int -Prompt 'Anti-sleep interval seconds' -Default 55 -Min 1 -Max 3600
     $ignoreInjectedInputForIdle = Read-YesNo -Prompt 'Ignore injected input for idle detection (recommended with Mouse Without Borders)' -Default $false
+    $startWithWindows = Read-YesNo -Prompt 'Start with Windows' -Default $false
 
     Write-Host ''
     Write-Host 'Sleep protection scope:'
@@ -233,6 +234,7 @@ function Write-InteractiveSettings {
         antiSleepIntervalSeconds = $antiSleepInterval
         sleepProtectionScope = $sleepScope
         ignoreInjectedInputForIdle = $ignoreInjectedInputForIdle
+        startWithWindows = $startWithWindows
     }
 
     $settingsDirectory = Split-Path -Parent $SettingsPath

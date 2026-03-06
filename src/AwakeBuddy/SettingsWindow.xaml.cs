@@ -97,6 +97,7 @@ public partial class SettingsWindow : Window
         AntiSleepIntervalTextBox.Text = settings.AntiSleepIntervalSeconds.ToString(CultureInfo.InvariantCulture);
         SleepProtectionScopeComboBox.SelectedItem = settings.SleepProtectionScope;
         IgnoreInjectedInputForIdleCheckBox.IsChecked = settings.IgnoreInjectedInputForIdle;
+        StartWithWindowsCheckBox.IsChecked = settings.StartWithWindows;
 
         _isLoading = false;
     }
@@ -206,7 +207,8 @@ public partial class SettingsWindow : Window
             AntiSleepEnabled = AntiSleepEnabledCheckBox.IsChecked == true,
             AntiSleepIntervalSeconds = antiSleepIntervalSeconds,
             SleepProtectionScope = sleepProtectionScope,
-            IgnoreInjectedInputForIdle = IgnoreInjectedInputForIdleCheckBox.IsChecked == true
+            IgnoreInjectedInputForIdle = IgnoreInjectedInputForIdleCheckBox.IsChecked == true,
+            StartWithWindows = StartWithWindowsCheckBox.IsChecked == true
         };
 
         _onSave(nextSettings);

@@ -35,6 +35,7 @@ public partial class App : System.Windows.Application
 
         _settingsStore = new SettingsStore();
         CurrentSettings = _settingsStore.Load();
+        StartupRegistration.Apply(CurrentSettings.StartWithWindows);
 
         int idleThresholdSeconds = Math.Max(1, CurrentSettings.IdleThresholdSeconds);
         IdleMonitor idleMonitor = new(idleThresholdSeconds);
@@ -211,6 +212,7 @@ public partial class App : System.Windows.Application
         if (persistToDisk)
         {
             _settingsStore.Save(CurrentSettings);
+            StartupRegistration.Apply(CurrentSettings.StartWithWindows);
         }
 
         _awakeCoordinator.UpdateSettings(CurrentSettings);

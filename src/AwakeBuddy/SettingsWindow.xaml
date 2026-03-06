@@ -21,6 +21,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0"
@@ -191,10 +192,26 @@
                       Grid.Column="1"
                       VerticalAlignment="Center"
                       HorizontalAlignment="Left"
-                      Content="Physical input only" />
+                       Content="Physical input only" />
         </Grid>
 
-        <DockPanel Grid.Row="12"
+        <Grid Grid.Row="12"
+              Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="240" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0"
+                       VerticalAlignment="Center"
+                       Text="Start with Windows" />
+            <CheckBox x:Name="StartWithWindowsCheckBox"
+                      Grid.Column="1"
+                      VerticalAlignment="Center"
+                      HorizontalAlignment="Left"
+                      Content="Enabled" />
+        </Grid>
+
+        <DockPanel Grid.Row="13"
                    LastChildFill="False"
                    Margin="0,14,0,0">
             <TextBlock DockPanel.Dock="Left"

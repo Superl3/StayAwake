@@ -19,6 +19,7 @@ public sealed class AppSettings
     public int AntiSleepIntervalSeconds { get; set; } = 55;
     public SleepProtectionScope SleepProtectionScope { get; set; } = SleepProtectionScope.SystemSleepOnly;
     public bool IgnoreInjectedInputForIdle { get; set; } = false;
+    public bool StartWithWindows { get; set; } = false;
 
     public static AppSettings CreateDefault() => new();
 
@@ -34,7 +35,8 @@ public sealed class AppSettings
             AntiSleepEnabled = AntiSleepEnabled,
             AntiSleepIntervalSeconds = AntiSleepIntervalSeconds,
             SleepProtectionScope = SleepProtectionScope,
-            IgnoreInjectedInputForIdle = IgnoreInjectedInputForIdle
+            IgnoreInjectedInputForIdle = IgnoreInjectedInputForIdle,
+            StartWithWindows = StartWithWindows
         };
     }
 }

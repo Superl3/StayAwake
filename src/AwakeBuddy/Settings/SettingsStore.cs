@@ -82,11 +82,51 @@ public sealed class SettingsStore
         {
             Directory.CreateDirectory(SettingsDirectoryPath);
             string json = JsonSerializer.Serialize(settings, SerializerOptions);
-            File.WriteAllText(SettingsFilePath, json);
+            WriteSettingsAtomically(json);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             LogFallback("settings io error writing file");
+        }
+    }
+
+    private void WriteSettingsAtomically(string json)
+    {
+        string tempFilePath = Path.Combine(SettingsDirectoryPath, $"{SettingsFileName}.{Guid.NewGuid():N}.tmp");
+        string backupFilePath = Path.Combine(SettingsDirectoryPath, $"{SettingsFileName}.{Guid.NewGuid():N}.bak");
+
+        try
+        {
+            File.WriteAllText(tempFilePath, json);
+
+            if (File.Exists(SettingsFilePath))
+            {
+                File.Replace(tempFilePath, SettingsFilePath, backupFilePath, ignoreMetadataErrors: true);
+            }
+            else
+            {
+                File.Move(tempFilePath, SettingsFilePath);
+            }
+        }
+        finally
+        {
+            TryDeleteFile(tempFilePath);
+            TryDeleteFile(backupFilePath);
+        }
+    }
+
+    private static void TryDeleteFile(string filePath)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Debug.WriteLine($"SettingsStore: cleanup failed for '{filePath}': {ex}");
         }
     }
 
@@ -134,7 +174,8 @@ public sealed class SettingsStore
             AntiSleepEnabled = document.AntiSleepEnabled.GetValueOrDefault(defaults.AntiSleepEnabled),
             AntiSleepIntervalSeconds = antiSleepInterval,
             SleepProtectionScope = protectionScope,
-            IgnoreInjectedInputForIdle = document.IgnoreInjectedInputForIdle.GetValueOrDefault(defaults.IgnoreInjectedInputForIdle)
+            IgnoreInjectedInputForIdle = document.IgnoreInjectedInputForIdle.GetValueOrDefault(defaults.IgnoreInjectedInputForIdle),
+            StartWithWindows = document.StartWithWindows.GetValueOrDefault(defaults.StartWithWindows)
         };
     }
 
@@ -183,5 +224,6 @@ public sealed class SettingsStore
         public int? AntiSleepIntervalSeconds { get; set; }
         public SleepProtectionScope? SleepProtectionScope { get; set; }
         public bool? IgnoreInjectedInputForIdle { get; set; }
+        public bool? StartWithWindows { get; set; }
     }
 }
