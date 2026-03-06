@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using Microsoft.Win32;
 using AwakeBuddy.Settings;
 using FormsScreen = System.Windows.Forms.Screen;
 
@@ -12,11 +13,19 @@ public partial class SettingsWindow : Window
 {
     private readonly Action<AppSettings> _onSave;
     private readonly Action<double>? _onOverlayOpacityPreview;
+    private readonly SettingsProfile[] _profiles;
+    private readonly IdleInputPolicyOption[] _idleInputPolicyOptions;
     private int _schemaVersion = AppSettings.CurrentSchemaVersion;
     private bool _isLoading;
+    private string _settingsPath = string.Empty;
 
     private const string AllDisplaysToken = "*";
     private readonly DisplayOption[] _displayOptions;
+
+    private sealed record IdleInputPolicyOption(IdleInputPolicy Policy, string Name)
+    {
+        public override string ToString() => Name;
+    }
 
     private sealed class DisplayOption : INotifyPropertyChanged
     {
@@ -49,9 +58,23 @@ public partial class SettingsWindow : Window
         _onSave = onSave ?? throw new ArgumentNullException(nameof(onSave));
         _onOverlayOpacityPreview = onOverlayOpacityPreview;
         _displayOptions = CreateDisplayOptions();
+        _profiles = SettingsProfiles.GetProfiles();
+        _idleInputPolicyOptions =
+        [
+            new(IdleInputPolicy.Native, "Native (GetLastInputInfo)"),
+            new(IdleInputPolicy.Hybrid, "Hybrid (physical + injected activity)"),
+            new(IdleInputPolicy.PhysicalOnly, "Physical-only")
+        ];
 
         InitializeComponent();
         SleepProtectionScopeComboBox.ItemsSource = Enum.GetValues<SleepProtectionScope>();
+        IdleInputPolicyComboBox.ItemsSource = _idleInputPolicyOptions;
+        ProfileComboBox.ItemsSource = _profiles;
+        if (_profiles.Length > 0)
+        {
+            ProfileComboBox.SelectedIndex = 0;
+        }
+
         TargetDisplaysItemsControl.ItemsSource = _displayOptions;
         LoadSettings(settings, settingsPath);
     }
@@ -87,6 +110,8 @@ public partial class SettingsWindow : Window
             ? settings.SchemaVersion
             : AppSettings.CurrentSchemaVersion;
 
+        _settingsPath = settingsPath;
+
         SettingsPathTextBlock.Text = settingsPath;
         IdleThresholdTextBox.Text = settings.IdleThresholdSeconds.ToString(CultureInfo.InvariantCulture);
         OverlayEnabledCheckBox.IsChecked = settings.OverlayEnabled;
@@ -96,7 +121,7 @@ public partial class SettingsWindow : Window
         AntiSleepEnabledCheckBox.IsChecked = settings.AntiSleepEnabled;
         AntiSleepIntervalTextBox.Text = settings.AntiSleepIntervalSeconds.ToString(CultureInfo.InvariantCulture);
         SleepProtectionScopeComboBox.SelectedItem = settings.SleepProtectionScope;
-        IgnoreInjectedInputForIdleCheckBox.IsChecked = settings.IgnoreInjectedInputForIdle;
+        IdleInputPolicyComboBox.SelectedItem = ResolveIdleInputPolicyOption(settings.IdleInputPolicy);
         StartWithWindowsCheckBox.IsChecked = settings.StartWithWindows;
 
         _isLoading = false;
@@ -177,41 +202,13 @@ public partial class SettingsWindow : Window
 
     private void OnSaveButtonClick(object sender, RoutedEventArgs e)
     {
-        if (!int.TryParse(IdleThresholdTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int idleThresholdSeconds) ||
-            idleThresholdSeconds < 0)
+        if (!TryBuildSettingsFromForm(out AppSettings? nextSettings, out string validationMessage))
         {
-            ShowValidationError("Idle threshold must be 0 or a positive number of seconds.");
+            ShowValidationError(validationMessage);
             return;
         }
 
-        if (!int.TryParse(AntiSleepIntervalTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int antiSleepIntervalSeconds) ||
-            antiSleepIntervalSeconds <= 0)
-        {
-            ShowValidationError("Anti-sleep interval must be a positive number of seconds.");
-            return;
-        }
-
-        if (SleepProtectionScopeComboBox.SelectedItem is not SleepProtectionScope sleepProtectionScope)
-        {
-            ShowValidationError("Select a valid sleep protection scope.");
-            return;
-        }
-
-        AppSettings nextSettings = new()
-        {
-            SchemaVersion = _schemaVersion,
-            IdleThresholdSeconds = idleThresholdSeconds,
-            OverlayEnabled = OverlayEnabledCheckBox.IsChecked == true,
-            OverlayMonitorDeviceName = BuildOverlayMonitorSelectionSpec(),
-            OverlayOpacity = Math.Round(OverlayOpacitySlider.Value / 100d, 2),
-            AntiSleepEnabled = AntiSleepEnabledCheckBox.IsChecked == true,
-            AntiSleepIntervalSeconds = antiSleepIntervalSeconds,
-            SleepProtectionScope = sleepProtectionScope,
-            IgnoreInjectedInputForIdle = IgnoreInjectedInputForIdleCheckBox.IsChecked == true,
-            StartWithWindows = StartWithWindowsCheckBox.IsChecked == true
-        };
-
-        _onSave(nextSettings);
+        _onSave(nextSettings!);
         Close();
     }
 
@@ -223,6 +220,144 @@ public partial class SettingsWindow : Window
     private void ShowValidationError(string message)
     {
         MessageBox.Show(this, message, "AwakeBuddy Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    private bool TryBuildSettingsFromForm(out AppSettings? settings, out string validationMessage)
+    {
+        settings = null;
+        validationMessage = string.Empty;
+
+        if (!int.TryParse(IdleThresholdTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int idleThresholdSeconds) ||
+            idleThresholdSeconds < 0)
+        {
+            validationMessage = "Idle threshold must be 0 or a positive number of seconds.";
+            return false;
+        }
+
+        if (!int.TryParse(AntiSleepIntervalTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int antiSleepIntervalSeconds) ||
+            antiSleepIntervalSeconds <= 0)
+        {
+            validationMessage = "Anti-sleep interval must be a positive number of seconds.";
+            return false;
+        }
+
+        if (SleepProtectionScopeComboBox.SelectedItem is not SleepProtectionScope sleepProtectionScope)
+        {
+            validationMessage = "Select a valid sleep protection scope.";
+            return false;
+        }
+
+        if (IdleInputPolicyComboBox.SelectedItem is not IdleInputPolicyOption idleInputPolicyOption)
+        {
+            validationMessage = "Select a valid idle input policy.";
+            return false;
+        }
+
+        settings = new AppSettings
+        {
+            SchemaVersion = _schemaVersion,
+            IdleThresholdSeconds = idleThresholdSeconds,
+            OverlayEnabled = OverlayEnabledCheckBox.IsChecked == true,
+            OverlayMonitorDeviceName = BuildOverlayMonitorSelectionSpec(),
+            OverlayOpacity = Math.Round(OverlayOpacitySlider.Value / 100d, 2),
+            AntiSleepEnabled = AntiSleepEnabledCheckBox.IsChecked == true,
+            AntiSleepIntervalSeconds = antiSleepIntervalSeconds,
+            SleepProtectionScope = sleepProtectionScope,
+            IdleInputPolicy = idleInputPolicyOption.Policy,
+            StartWithWindows = StartWithWindowsCheckBox.IsChecked == true
+        };
+
+        return true;
+    }
+
+    private IdleInputPolicyOption ResolveIdleInputPolicyOption(IdleInputPolicy policy)
+    {
+        foreach (IdleInputPolicyOption option in _idleInputPolicyOptions)
+        {
+            if (option.Policy == policy)
+            {
+                return option;
+            }
+        }
+
+        return _idleInputPolicyOptions[0];
+    }
+
+    private void OnApplyProfileButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (ProfileComboBox.SelectedItem is not SettingsProfile selectedProfile)
+        {
+            ShowValidationError("Select a profile to apply.");
+            return;
+        }
+
+        if (!TryBuildSettingsFromForm(out AppSettings? currentFromForm, out _))
+        {
+            currentFromForm = new AppSettings
+            {
+                SchemaVersion = _schemaVersion,
+                OverlayMonitorDeviceName = BuildOverlayMonitorSelectionSpec(),
+                StartWithWindows = StartWithWindowsCheckBox.IsChecked == true
+            };
+        }
+
+        AppSettings profiled = SettingsProfiles.ApplyProfile(currentFromForm!, selectedProfile);
+        LoadSettings(profiled, _settingsPath);
+    }
+
+    private void OnImportSettingsButtonClick(object sender, RoutedEventArgs e)
+    {
+        OpenFileDialog dialog = new()
+        {
+            Title = "Import AwakeBuddy Settings",
+            Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        if (!SettingsStore.TryLoadFromFile(dialog.FileName, out AppSettings importedSettings, out string error))
+        {
+            ShowValidationError(error);
+            return;
+        }
+
+        LoadSettings(importedSettings, _settingsPath);
+    }
+
+    private void OnExportSettingsButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (!TryBuildSettingsFromForm(out AppSettings? currentFromForm, out string validationMessage))
+        {
+            ShowValidationError(validationMessage);
+            return;
+        }
+
+        SaveFileDialog dialog = new()
+        {
+            Title = "Export AwakeBuddy Settings",
+            Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+            FileName = "awakebuddy-settings.json",
+            AddExtension = true,
+            DefaultExt = ".json"
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        if (!SettingsStore.TryExportToFile(currentFromForm!, dialog.FileName, out string error))
+        {
+            ShowValidationError(error);
+            return;
+        }
+
+        MessageBox.Show(this, $"Settings exported to {dialog.FileName}", "AwakeBuddy Settings", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private string BuildOverlayMonitorSelectionSpec()

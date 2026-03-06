@@ -155,6 +155,16 @@ function Read-MonitorSelectionSpec {
     }
 }
 
+function Read-IdleInputPolicy {
+    Write-Host ''
+    Write-Host 'Idle input policy:'
+    Write-Host '  0) Native (GetLastInputInfo)'
+    Write-Host '  1) Hybrid (physical input + injected interaction activity)'
+    Write-Host '  2) Physical-only'
+
+    return Read-Int -Prompt 'Policy' -Default 0 -Min 0 -Max 2
+}
+
 function Resolve-HostRuntimeIdentifier {
     try {
         $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToUpperInvariant()
@@ -215,7 +225,7 @@ function Write-InteractiveSettings {
 
     $antiSleepEnabled = Read-YesNo -Prompt 'Enable Anti-sleep' -Default $true
     $antiSleepInterval = Read-Int -Prompt 'Anti-sleep interval seconds' -Default 55 -Min 1 -Max 3600
-    $ignoreInjectedInputForIdle = Read-YesNo -Prompt 'Ignore injected input for idle detection (recommended with Mouse Without Borders)' -Default $false
+    $idleInputPolicy = Read-IdleInputPolicy
     $startWithWindows = Read-YesNo -Prompt 'Start with Windows' -Default $false
 
     Write-Host ''
@@ -233,7 +243,7 @@ function Write-InteractiveSettings {
         antiSleepEnabled = $antiSleepEnabled
         antiSleepIntervalSeconds = $antiSleepInterval
         sleepProtectionScope = $sleepScope
-        ignoreInjectedInputForIdle = $ignoreInjectedInputForIdle
+        idleInputPolicy = $idleInputPolicy
         startWithWindows = $startWithWindows
     }
 

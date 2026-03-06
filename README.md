@@ -13,8 +13,10 @@ It combines three goals:
 - Tray-first app (no main window required)
 - Dedicated settings window backed by `%APPDATA%\AwakeBuddy\settings.json`
 - OLED Care Mode with monitor selection and `idleThresholdSeconds = 0` always-on mode
-- Optional physical-input-only idle detection (`ignoreInjectedInputForIdle`) to reduce false activity from injected/remote tools
+- Idle input policy modes: Native, Hybrid, and Physical-only
 - Anti-sleep engine with configurable interval and scope
+- Tray temporary pause controls for OLED Care (`5 / 15 / 30 min`, plus `Resume now`)
+- Settings import/export JSON controls and one-click profile presets (Balanced, OLED Strict, Remote Work)
 - Optional `Start with Windows` toggle backed by HKCU Run registration
 - Global hotkeys:
   - `Ctrl+Alt+O`: Toggle OLED Care Mode
@@ -112,13 +114,14 @@ If you want another user to install directly from your repository URL:
 .\scripts\install-from-git.ps1 -RepoUrl "<your-repo-url>"
 ```
 
-The setup flow now includes an idle option to ignore injected input events (useful for tools like Mouse Without Borders).
+The setup flow now includes idle input policy selection (useful for tools like Mouse Without Borders).
 
 ## Usage
 
 - Run `AwakeBuddy.exe`
 - Use tray icon menu to toggle:
   - `OLED Care Mode`
+  - `OLED Care Pause` -> `Pause 5 min`, `Pause 15 min`, `Pause 30 min`, `Resume now`
   - `Anti-sleep`
   - `Open settings`
   - `Exit`
@@ -141,7 +144,7 @@ Example:
   "antiSleepEnabled": true,
   "antiSleepIntervalSeconds": 55,
   "sleepProtectionScope": 1,
-  "ignoreInjectedInputForIdle": false,
+  "idleInputPolicy": 0,
   "startWithWindows": false
 }
 ```
@@ -158,7 +161,7 @@ Field reference:
 | `antiSleepEnabled` | bool | Anti-sleep enabled flag |
 | `antiSleepIntervalSeconds` | int | Keep-awake heartbeat interval in seconds |
 | `sleepProtectionScope` | int | `0`: system sleep only, `1`: system + display sleep |
-| `ignoreInjectedInputForIdle` | bool | When `true`, idle detection prefers physical keyboard/mouse events and ignores injected low-level input flags |
+| `idleInputPolicy` | int | Idle detection policy: `0` Native (`GetLastInputInfo`), `1` Hybrid (physical + injected interaction activity), `2` Physical-only |
 | `startWithWindows` | bool | When `true`, AwakeBuddy registers itself under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` |
 
 Status output is written to `%APPDATA%\AwakeBuddy\status.json`.
