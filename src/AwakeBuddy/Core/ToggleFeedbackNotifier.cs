@@ -20,7 +20,6 @@ public sealed class ToggleFeedbackNotifier : IDisposable
 
     private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer _hideTimer;
-    private readonly object _gate = new();
 
     private Window? _window;
     private TextBlock? _messageText;
@@ -155,16 +154,13 @@ public sealed class ToggleFeedbackNotifier : IDisposable
 
     private void InvokeOnDispatcher(Action action)
     {
-        lock (_gate)
+        if (_dispatcher.CheckAccess())
         {
-            if (_dispatcher.CheckAccess())
-            {
-                action();
-                return;
-            }
-
-            _dispatcher.Invoke(action);
+            action();
+            return;
         }
+
+        _dispatcher.Invoke(action);
     }
 
     private void ThrowIfDisposed()

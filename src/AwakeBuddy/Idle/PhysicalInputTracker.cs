@@ -27,6 +27,8 @@ internal sealed class PhysicalInputTracker : IDisposable
     private const uint WindowMessageXButtonDown = 0x020B;
     private const uint WindowMessageXButtonUp = 0x020C;
     private const uint WindowMessageMouseHorizontalWheel = 0x020E;
+    private const int HookThreadJoinTimeoutMilliseconds = 1000;
+    private const int HookThreadJoinRetryTimeoutMilliseconds = 3000;
 
     private readonly object _gate = new();
     private readonly HookProc _keyboardHookProc;
@@ -56,6 +58,18 @@ internal sealed class PhysicalInputTracker : IDisposable
 
             if (_isRunning)
             {
+                return;
+            }
+
+            if (_hookThread is not null && !_hookThread.IsAlive)
+            {
+                _hookThread = null;
+                _hookThreadId = 0;
+            }
+
+            if (_hookThread is { IsAlive: true })
+            {
+                Debug.WriteLine("PhysicalInputTracker: start skipped because previous hook thread is still terminating.");
                 return;
             }
 
@@ -125,14 +139,35 @@ internal sealed class PhysicalInputTracker : IDisposable
 
         if (hookThread is not null && hookThread.IsAlive)
         {
-            _ = hookThread.Join(millisecondsTimeout: 1000);
+            bool joined = hookThread.Join(millisecondsTimeout: HookThreadJoinTimeoutMilliseconds);
+
+            if (!joined && hookThreadId != 0)
+            {
+                bool retryPostSucceeded = PostThreadMessage((uint)hookThreadId, WindowMessageQuit, UIntPtr.Zero, IntPtr.Zero);
+                if (!retryPostSucceeded)
+                {
+                    int retryErrorCode = Marshal.GetLastWin32Error();
+                    Debug.WriteLine($"PhysicalInputTracker: failed to repost WM_QUIT to hook thread (error={retryErrorCode}).");
+                }
+
+                joined = hookThread.Join(millisecondsTimeout: HookThreadJoinRetryTimeoutMilliseconds);
+            }
+
+            if (!joined)
+            {
+                Debug.WriteLine("PhysicalInputTracker: hook thread did not terminate within timeout.");
+            }
         }
 
         lock (_gate)
         {
-            _hookThread = null;
-            _hookThreadId = 0;
             _hooksInstalled = false;
+
+            if (hookThread is null || !hookThread.IsAlive)
+            {
+                _hookThread = null;
+                _hookThreadId = 0;
+            }
         }
     }
 

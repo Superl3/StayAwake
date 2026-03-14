@@ -48,12 +48,52 @@ public sealed class StatusWriter
             {
                 Directory.CreateDirectory(StatusDirectoryPath);
                 string json = JsonSerializer.Serialize(status, SerializerOptions);
-                File.WriteAllText(StatusFilePath, json);
+                WriteStatusAtomically(json);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 Debug.WriteLine($"StatusWriter: failed to write status: {ex}");
             }
+        }
+    }
+
+    private void WriteStatusAtomically(string json)
+    {
+        string tempFilePath = Path.Combine(StatusDirectoryPath, $"{StatusFileName}.{Guid.NewGuid():N}.tmp");
+        string backupFilePath = Path.Combine(StatusDirectoryPath, $"{StatusFileName}.{Guid.NewGuid():N}.bak");
+
+        try
+        {
+            File.WriteAllText(tempFilePath, json);
+
+            if (File.Exists(StatusFilePath))
+            {
+                File.Replace(tempFilePath, StatusFilePath, backupFilePath, ignoreMetadataErrors: true);
+            }
+            else
+            {
+                File.Move(tempFilePath, StatusFilePath);
+            }
+        }
+        finally
+        {
+            TryDeleteFile(tempFilePath);
+            TryDeleteFile(backupFilePath);
+        }
+    }
+
+    private static void TryDeleteFile(string filePath)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Debug.WriteLine($"StatusWriter: cleanup failed for '{filePath}': {ex}");
         }
     }
 }

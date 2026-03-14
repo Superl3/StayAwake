@@ -67,7 +67,6 @@ public sealed class WpfOledOverlay : IOledOverlay
     private static readonly IntPtr HwndTopMost = new(-1);
 
     private readonly Dispatcher _dispatcher;
-    private readonly object _gate = new();
     private readonly DispatcherTimer _overlayMaintenanceTimer;
     private readonly DispatcherTimer _hintTimer;
     private readonly DispatcherTimer _cursorOverrideTimer;
@@ -652,16 +651,13 @@ public sealed class WpfOledOverlay : IOledOverlay
 
     private void InvokeOnDispatcher(Action action)
     {
-        lock (_gate)
+        if (_dispatcher.CheckAccess())
         {
-            if (_dispatcher.CheckAccess())
-            {
-                action();
-                return;
-            }
-
-            _dispatcher.Invoke(action);
+            action();
+            return;
         }
+
+        _dispatcher.Invoke(action);
     }
 
     [DllImport("user32.dll", SetLastError = true)]

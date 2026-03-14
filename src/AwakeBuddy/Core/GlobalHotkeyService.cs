@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 
@@ -53,6 +54,29 @@ public sealed class GlobalHotkeyService : IDisposable
             int errorCode = Marshal.GetLastWin32Error();
             System.Diagnostics.Debug.WriteLine($"GlobalHotkeyService: failed to register Ctrl+Alt+S (error={errorCode}).");
         }
+
+        string? hotkeyWarning = CreateHotkeyWarningMessage(_toggleOverlayRegistered, _openSettingsRegistered);
+
+        if (!string.IsNullOrEmpty(hotkeyWarning))
+        {
+            System.Diagnostics.Debug.WriteLine($"GlobalHotkeyService: {hotkeyWarning}");
+        }
+
+        if (!string.IsNullOrEmpty(hotkeyWarning))
+        {
+            try
+            {
+                MessageBox.Show(
+                    hotkeyWarning,
+                    "AwakeBuddy Hotkeys",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Warning);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"GlobalHotkeyService: failed to show warning dialog: {ex}");
+            }
+        }
     }
 
     public void Dispose()
@@ -102,6 +126,26 @@ public sealed class GlobalHotkeyService : IDisposable
         }
 
         return IntPtr.Zero;
+    }
+
+    private static string? CreateHotkeyWarningMessage(bool toggleOverlayRegistered, bool openSettingsRegistered)
+    {
+        if (toggleOverlayRegistered && openSettingsRegistered)
+        {
+            return null;
+        }
+
+        if (!toggleOverlayRegistered && !openSettingsRegistered)
+        {
+            return "Ctrl+Alt+O and Ctrl+Alt+S hotkeys are unavailable. Another app may already be using these shortcuts.";
+        }
+
+        if (!toggleOverlayRegistered)
+        {
+            return "Ctrl+Alt+O hotkey is unavailable. Another app may already be using this shortcut.";
+        }
+
+        return "Ctrl+Alt+S hotkey is unavailable. Another app may already be using this shortcut.";
     }
 
     [DllImport("user32.dll", SetLastError = true)]
