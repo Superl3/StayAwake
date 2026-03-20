@@ -1,0 +1,65 @@
+name: Release Versioned
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. v1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Resolve version
+        id: resolve_version
+        shell: pwsh
+        run: |
+          $version = if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            "${{ inputs.version }}"
+          } else {
+            "${{ github.ref_name }}"
+          }
+
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "Resolved version is empty."
+          }
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Resolved version: $version"
+
+      - name: Build release assets
+        shell: pwsh
+        run: |
+          ./scripts/build-release-assets.ps1 -Version "${{ steps.resolve_version.outputs.version }}"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.resolve_version.outputs.version }}
+          prerelease: false
+          make_latest: true
+          overwrite_files: true
+          body: |
+            Release: ${{ steps.resolve_version.outputs.version }}
+            Commit: ${{ github.sha }}
+          files: |
+            dist/release/${{ steps.resolve_version.outputs.version }}/AwakeBuddy-win-x64.exe
+            dist/release/${{ steps.resolve_version.outputs.version }}/AwakeBuddy-win-x86.exe
+            dist/release/${{ steps.resolve_version.outputs.version }}/AwakeBuddy-win-arm64.exe
+            dist/release/${{ steps.resolve_version.outputs.version }}/SHA256SUMS.txt
